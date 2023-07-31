@@ -3,4 +3,4 @@ MindCare is an AI chatbot that users can talk to get immediate help with mental 
 
 MindCare Presentation: https://docs.google.com/presentation/d/1feoDwCrOprOw1nQVuyknNRf32xba-9EXhhBKGKqM88g/edit?usp=sharing
 
-MindCare Demo: https://sites.google.com/view/mindcare2023/
+MindCare Demo: https://ayush.kothule.me/mindcare
