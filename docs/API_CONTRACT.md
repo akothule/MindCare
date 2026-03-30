@@ -1,4 +1,4 @@
-# MindCare API Contract Draft (MVP v0.1)
+# MindCare API Contract (MVP v0.1)
 
 This contract is designed to support deterministic safety behavior and robust fallbacks.
 

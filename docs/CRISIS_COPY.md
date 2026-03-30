@@ -33,14 +33,15 @@ Need immediate support?
 
 ## 4) Usage rules
 
-- High-risk classifier result must return the high-risk template exactly.
+- **High-risk:** Use the §1 body **verbatim** (no improvisation of hotlines or wording). Then **append** the §5 location disclaimer line so the full user-facing `reply_text` is: §1 body + disclaimer. Spacing (newline vs paragraph) is an implementation detail; content must not vary from approved copy.
+- **Medium-risk:** Use the §2 body verbatim when serving the medium template, then append the §5 disclaimer the same way when that response is crisis/support safety messaging.
 - Medium-risk template can be used as fallback for ambiguous distress.
 - Do not let the LLM improvise hotline numbers.
 - All numbers and wording changes require review and version bump.
 
 ## 5) Location disclaimer line (for global access)
 
-Always append this line in crisis/support safety messaging:
+Append this line **after** the §1 or §2 template body whenever that template is used (so the disclaimer is part of the same message, not a separate policy conflict):
 
 "If you are outside the U.S., local emergency and crisis services may be different. If you are in immediate danger, contact your local emergency number now."
 

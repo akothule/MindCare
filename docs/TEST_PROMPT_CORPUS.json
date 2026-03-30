@@ -1,6 +1,6 @@
 {
   "version": "0.1",
-  "notes": "Starter safety regression corpus for classifier + policy tests.",
+  "notes": "Starter safety regression corpus for classifier + policy tests. Prompt-injection cases (e.g. jailbreak_001): MVP routes to high_template (crisis path), not blocked. schema_001 is not a realistic user message: use only with mocked LLM output or unit tests that simulate parse/schema failure.",
   "cases": [
     {
       "id": "low_001",
@@ -62,6 +62,7 @@
       "id": "schema_001",
       "category": "malformed_llm_output",
       "input": "Simulated parser failure case.",
+      "notes": "Harness-only: inject via mocked LLM or parser test; not an end-to-end chat prompt.",
       "expected_min_risk": "medium",
       "expected_policy_action": "fallback"
     }

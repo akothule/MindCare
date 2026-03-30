@@ -41,8 +41,8 @@
 **Architecture (MVP):**
 
 * Frontend:  
-  * Simple web chat UI hosted separately and embedded into Google Sites via iframe during early development.  
-    * Can later be replaced with dedicated web app  
+  * Simple web chat UI hosted separately (static host or SPA): e.g. GitHub Pages, Netlify, Vercel, Cloudflare Pages—or embedded in any page (including Google Sites via iframe) if you want a free wrapper.  
+  * Can later be replaced with a dedicated web app; the API contract stays the same.  
 * Backend (core):  
   * Python/FastAPI REST API with main endpoint /api/v1/chat.  
   * Integrates with an LLM provider to generate responses.  
@@ -52,6 +52,80 @@
 * External services:  
   * LLM API (Claude for MVP).
   * Optional monitoring/logging service later.
+
+### Architecture diagram (MVP)
+
+The diagrams below use **Vercel** for the frontend and **Render** for the API. **Netlify, GitHub Pages, Cloudflare Pages**, or another static/SPA host are equivalent to Vercel for the UI.
+
+**MVP scope called out in the diagrams:** **No user authentication** (anonymous `session_id` only), **no persistent database** (in-process memory only), **no separate Redis** unless you add it later. **Secrets** live in Render (and optional non-secret env on Vercel for public config like API base URL). **DNS and TLS** are provided by Vercel and Render; **CDN/edge** is implicit on Vercel for static assets.
+
+#### Figure 1 — Deployment and major components
+
+Shows *where* things run and *what* talks to what. Only the **LLM client** inside your service calls Anthropic; session data is not a separate “connector” to Claude.
+
+```mermaid
+flowchart TB
+  U[User]
+  BR[Browser]
+  subgraph vercel["Vercel"]
+    EDGE[Vercel Edge / CDN]
+    UI[Chat UI - static or SPA]
+  end
+  subgraph render["Render"]
+    subgraph secrets["Config"]
+      ENV[Environment secrets — Anthropic key, model id]
+    end
+    subgraph fastapi["FastAPI service"]
+      MW[Middleware: CORS + rate limit]
+      CORE[Chat handler + safety pipeline]
+      MEM[(In-memory sessions - last N turns)]
+      LOG[Structured logs]
+    end
+  end
+  subgraph external["Third-party APIs"]
+    ANTH[Anthropic Claude API]
+  end
+  U --> BR
+  BR -->|GET page, HTTPS| EDGE
+  EDGE --> UI
+  UI -->|POST /api/v1/chat JSON, HTTPS| MW
+  ENV -.->|read at runtime| CORE
+  MW --> CORE
+  CORE <--> MEM
+  CORE --> LOG
+  CORE -->|HTTPS, API key from env| ANTH
+```
+
+**Post-MVP (dashed idea, not required now):** external **metrics/APM** (e.g. hosted logging), **managed DB** for sessions or audit logs, **Redis** for shared session if you scale beyond one instance.
+
+#### Figure 2 — Logical request path inside the API
+
+Matches the deterministic pipeline in `docs/SAFETY_POLICY.md` §4. Not every step calls the LLM (e.g. high-risk may use fixed templates from `docs/CRISIS_COPY.md` without a normal completion).
+
+```mermaid
+flowchart TB
+  IN[Incoming POST /api/v1/chat]
+  V[1 - Validate + normalize input]
+  R[2 - Pre-LLM risk rules keywords / phrases]
+  S[(3 - Load / update session context)]
+  G{4 - Policy allows LLM generation?}
+  L[5 - Call Claude via SDK - structured JSON]
+  P[6 - Parse + validate JSON schema]
+  F[7 - Post-LLM safety filters]
+  POL[8 - Final policy override + template selection]
+  OUT[9 - Response + structured logging]
+  TPL[Fixed templates - CRISIS_COPY.md]
+  IN --> V --> R --> S --> G
+  G -->|yes, low / medium path| L
+  G -->|crisis / template path| TPL
+  L --> P --> F --> POL
+  TPL --> POL
+  POL --> OUT
+```
+
+**Why omit auth, DB, and Redis from the boxes?** For MVP they are intentionally absent: sessions are **ephemeral** and **per server process** (`docs/DECISIONS_LOG.md`). Adding **Clerk/Auth0** or **Postgres** would be new components and belong in a post-MVP diagram.
+
+**Request path (reference):** full policy detail is in `docs/SAFETY_POLICY.md`; API fields are in `docs/API_CONTRACT.md`.
 
 ## 4\. Functional requirements (MVP)
 
@@ -159,8 +233,7 @@
 
 **Frontend (initial):**
 
-* Simple React or vanilla JS chat widget hosted on Netlify/Vercel.  
-* Embedded in Google Sites via iframe.
+* Simple React or vanilla JS chat widget hosted on Netlify/Vercel/GitHub Pages/Cloudflare Pages (or another static host).
 
 **LLM provider:**
 

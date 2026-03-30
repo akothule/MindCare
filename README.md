@@ -13,6 +13,7 @@ It is not a therapist or emergency service and does not provide diagnosis or med
 - `docs/API_CONTRACT.md` - `/api/v1/chat` request/response schema and runtime behavior contract.
 
 ### Supporting docs
+- `docs/DEV_COMMANDS.md` - Common commands (venv, uvicorn, curl, Render).
 - `docs/TEST_PROMPT_CORPUS.json` - Starter safety regression prompts for policy/testing checks.
 - `docs/DECISIONS_LOG.md` - Record of product/safety decisions and scope changes over time.
 - `docs/CLAUDE_PROVIDER_CHECKLIST.md` - Pre-integration checklist for Claude model and ops settings.
