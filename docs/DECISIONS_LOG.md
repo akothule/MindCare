@@ -23,6 +23,13 @@ Track policy and product decisions that affect implementation.
 - **Test corpus**: Documented jailbreak → `high_template` for MVP; `schema_001` as harness-only for mocked parser/LLM failures.
 - **Decisions captured**: Rate limit and prompt-injection routing recorded here for traceability.
 
+## 2026-04-28 (Phase 2 readiness lock)
+
+- **Fallback HTTP behavior**: For policy-safe fallbacks (including malformed model output), return `200` with `policy_action="fallback"` and a populated `fallback_reason`. Reserve `500/503` for infrastructure/runtime failures where a contract-shaped fallback cannot be produced.
+- **Deterministic policy order**: Enforce this precedence in `/api/v1/chat`: validate/normalize input -> pre-LLM risk rules -> session state check (including 3+ high-risk lock) -> LLM generation when allowed -> post-LLM safety filter -> final policy override/template selection -> response + structured logging.
+- **Template mapping**: `medium_template` and `high_template` use fixed copy from `docs/CRISIS_COPY.md`; append the location disclaimer line in the same message.
+- **Observability minimum fields**: Each turn log should include `request_id`, `session_id`, final `risk_level`, final `policy_action`, `fallback_reason` (when present), and `trigger_source` (`pre_llm`, `llm`, `post_llm`, `session_lock`, `fallback`).
+
 ## Pending
 
 - None.

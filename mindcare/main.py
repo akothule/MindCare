@@ -21,3 +21,8 @@ app.include_router(chat.router, prefix="/api/v1")
 @app.get("/")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "mindcare"}
+
+
+@app.get("/health")
+def health_check() -> dict[str, str]:
+    return {"status": "ok", "service": "mindcare"}

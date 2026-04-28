@@ -44,14 +44,15 @@ This contract is designed to support deterministic safety behavior and robust fa
 
 - `400`: invalid request (empty message, too long, bad schema)
 - `429`: rate-limited
-- `500`: internal error with safe generic fallback message
-- `503`: LLM unavailable with safe retry-later message
+- `500`: internal error when a contract-shaped fallback cannot be produced
+- `503`: upstream provider unavailable/network failure where fallback cannot be produced
 
 ## Behavior requirements
 
 - If request has no `session_id`, server creates one and returns it.
 - If message fails validation, do not call LLM.
-- If model output parse fails, return policy-safe fallback response.
+- If model output parse/schema validation fails, return `200` with a policy-safe fallback response and `policy_action="fallback"`.
+- If post-LLM safety filter catches disallowed content, return a policy-safe response with final `policy_action` set by policy override.
 - `risk_level` in response is final risk level after policy overrides.
 - `policy_action` must always be present for observability.
 
