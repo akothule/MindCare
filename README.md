@@ -3,6 +3,17 @@ MindCare is an AI supportive companion for emotional reflection and basic coping
 
 It is not a therapist or emergency service and does not provide diagnosis or medication advice.
 
+## Current backend status
+
+- Backend routes live: `GET /`, `GET /health`, `POST /api/v1/chat`.
+- Deterministic safety layer is active in `/api/v1/chat`:
+  - pre-LLM risk routing for medium/high patterns
+  - fixed medium/high templates with location disclaimer
+  - post-LLM unsafe-output override
+  - parser fallback path (`200` with `policy_action="fallback"`)
+  - repeated high-risk session lock after 3+ high-risk turns
+- Test command: `python3 -m pytest -q` (current suite covers API contract + Phase 2 safety/fallback behavior).
+
 ## Project docs (start here)
 
 ### Core docs

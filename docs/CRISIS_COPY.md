@@ -43,7 +43,7 @@ Need immediate support?
 
 Append this line **after** the §1 or §2 template body whenever that template is used (so the disclaimer is part of the same message, not a separate policy conflict):
 
-"If you are outside the U.S., local emergency and crisis services may be different. If you are in immediate danger, contact your local emergency number now."
+"If you are outside the U.S., local emergency and crisis services may be different. If you are in immediate danger, please contact your local emergency number now."
 
 ## 6) High-risk follow-up UX rule
 

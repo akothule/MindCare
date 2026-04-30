@@ -30,6 +30,13 @@ Track policy and product decisions that affect implementation.
 - **Template mapping**: `medium_template` and `high_template` use fixed copy from `docs/CRISIS_COPY.md`; append the location disclaimer line in the same message.
 - **Observability minimum fields**: Each turn log should include `request_id`, `session_id`, final `risk_level`, final `policy_action`, `fallback_reason` (when present), and `trigger_source` (`pre_llm`, `llm`, `post_llm`, `session_lock`, `fallback`).
 
+## 2026-04-28 (Phase 2 implementation milestone)
+
+- **Safety layer status**: Implemented deterministic safety/fallback behavior in backend chat handler and validated with automated pytest coverage.
+- **Session incident handling**: Added in-memory high-risk turn counting and 3+ high-risk session lock behavior for MVP.
+- **Test posture**: Converted scaffold Phase 2 checks into active tests for medium/high template routing, fallback path, post-LLM override, and session lock.
+- **Outstanding MVP gap**: Rate limiting remains pending implementation and should be completed before final MVP acceptance sign-off.
+
 ## Pending
 
 - None.

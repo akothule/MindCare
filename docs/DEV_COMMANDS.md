@@ -24,7 +24,7 @@ source .venv/bin/activate
 uvicorn mindcare.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-- Health: `GET http://127.0.0.1:8000/`
+- Health: `GET http://127.0.0.1:8000/` or `GET http://127.0.0.1:8000/health`
 - Chat: `POST http://127.0.0.1:8000/api/v1/chat`
 
 **Note:** `.env` is loaded from the **repo root** automatically (`mindcare/config.py`), even if your shell’s current directory differs slightly—still prefer running `uvicorn` from the repo root.
@@ -33,6 +33,7 @@ uvicorn mindcare.main:app --reload --host 0.0.0.0 --port 8000
 
 ```bash
 curl -s http://127.0.0.1:8000/
+curl -s http://127.0.0.1:8000/health
 
 curl -s -X POST http://127.0.0.1:8000/api/v1/chat \
   -H 'Content-Type: application/json' \
@@ -63,6 +64,16 @@ Server logs now include the **Anthropic status code and body** for API errors (s
 ```bash
 python3 -m compileall -q mindcare
 ```
+
+## Test suite
+
+```bash
+python3 -m pytest -q
+```
+
+Current coverage highlights:
+- `tests/test_api.py`: health endpoints, request validation, baseline contract shape, high-risk fixed template, parser fallback 200 behavior.
+- `tests/test_phase2_safety_scaffold.py`: corpus-driven safety routing checks, low-risk mocked normal path, repeated high-risk session lock, post-LLM unsafe-output override.
 
 ## Render (production-style host)
 

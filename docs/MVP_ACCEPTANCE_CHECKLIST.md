@@ -2,6 +2,11 @@
 
 Use this checklist to decide whether MVP is ready for first demo/use.
 
+## Current status snapshot (2026-04-28)
+
+- Backend and Phase 2 policy behavior are implemented and covered by pytest.
+- Remaining notable gap before MVP sign-off: documented rate limiting target is not yet implemented.
+
 ## Release gate
 
 - [ ] All "must pass" checks in this file are completed.

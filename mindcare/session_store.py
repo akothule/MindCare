@@ -12,6 +12,7 @@ class SessionStore:
 
     def __init__(self) -> None:
         self._sessions: dict[str, Deque[dict[str, str]]] = {}
+        self._high_risk_counts: dict[str, int] = {}
         self._lock = Lock()
 
     def _maxlen(self) -> int:
@@ -23,10 +24,12 @@ class SessionStore:
             with self._lock:
                 if sid not in self._sessions:
                     self._sessions[sid] = deque(maxlen=self._maxlen())
+                self._high_risk_counts.setdefault(sid, 0)
             return sid
         new_id = str(uuid4())
         with self._lock:
             self._sessions[new_id] = deque(maxlen=self._maxlen())
+            self._high_risk_counts[new_id] = 0
         return new_id
 
     def append_user_message(self, session_id: str, text: str) -> None:
@@ -47,6 +50,15 @@ class SessionStore:
             if not q:
                 return []
             return list(q)
+
+    def increment_high_risk(self, session_id: str) -> int:
+        with self._lock:
+            self._high_risk_counts[session_id] = self._high_risk_counts.get(session_id, 0) + 1
+            return self._high_risk_counts[session_id]
+
+    def high_risk_count(self, session_id: str) -> int:
+        with self._lock:
+            return self._high_risk_counts.get(session_id, 0)
 
 
 _store: Optional[SessionStore] = None

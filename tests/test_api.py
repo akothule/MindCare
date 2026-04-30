@@ -55,3 +55,32 @@ def test_chat_returns_contract_fields(monkeypatch) -> None:
     assert body["resources"] == []
     assert body["fallback_reason"] is None
     assert isinstance(body["latency_ms"], int)
+
+
+def test_chat_high_risk_uses_fixed_template() -> None:
+    resp = client.post("/api/v1/chat", json={"message": "I want to kill myself."})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["risk_level"] == "high"
+    assert body["policy_action"] == "high_template"
+    assert "Call or text **988**" in body["reply_text"]
+    assert "If you are outside the U.S." in body["reply_text"]
+    assert body["resources"]
+
+
+def test_chat_parser_failure_returns_fallback_200(monkeypatch) -> None:
+    def fake_complete_chat_turn(_history, _latest_user_message):
+        raise ValueError("simulated parser failure")
+
+    monkeypatch.setattr(
+        "mindcare.routers.chat.complete_chat_turn",
+        fake_complete_chat_turn,
+    )
+
+    resp = client.post("/api/v1/chat", json={"message": "I feel stressed today"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["risk_level"] == "medium"
+    assert body["policy_action"] == "fallback"
+    assert body["fallback_reason"] == "llm_parse_failed"
+    assert "If you are outside the U.S." in body["reply_text"]

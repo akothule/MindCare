@@ -35,7 +35,7 @@ class ChatResponse(BaseModel):
 
 
 class LLMStructuredPayload(BaseModel):
-    """Expected JSON shape from the model (skeleton; tighten in Phase 2+)."""
+    """Expected JSON shape from the model response."""
 
     reply_text: str
     risk_level: RiskLevel = "low"
