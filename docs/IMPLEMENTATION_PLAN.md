@@ -83,6 +83,8 @@ Record all finalized choices in `docs/DECISIONS_LOG.md`.
 
 ## Phase 3 – Minimal standalone frontend
 
+**Implementation in this repo:** the app lives under **`web/`** (Vite + React + TypeScript). Local commands and env vars are described in `docs/DEV_COMMANDS.md` and `web/README.md`.
+
 ### Finalized tech stack (implementation)
 
 | Layer | Choice | Role |

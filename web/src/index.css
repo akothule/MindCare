@@ -1,0 +1,40 @@
+:root {
+  --page-bg: #f2efe9;
+  --text: #2c2520;
+  --text-muted: #6b635c;
+  --card-bg: #fff;
+  --card-border: #e5e0d8;
+  --card-shadow: 0 2px 12px rgba(44, 37, 32, 0.08);
+  --chat-header-bg: #faf8f5;
+  --chat-bg: #faf8f5;
+  --bubble-user: #ebe4dc;
+  --bubble-assistant: #fff;
+  --input-bg: #fff;
+  --input-border: #d4cdc4;
+  --focus-ring: #8b7355;
+  --link: #5c4a3a;
+  --link-hover: #3d3028;
+
+  font-family: system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  line-height: 1.5;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--text);
+  background: var(--page-bg);
+}
+
+#root {
+  min-height: 100vh;
+}

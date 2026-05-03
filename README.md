@@ -12,13 +12,15 @@ It is not a therapist or emergency service and does not provide diagnosis or med
   - post-LLM unsafe-output override
   - parser fallback path (`200` with `policy_action="fallback"`)
   - repeated high-risk session lock after 3+ high-risk turns
-- Test command: `python3 -m pytest -q` (current suite covers API contract + Phase 2 safety/fallback behavior).
+- Test command: `python3 -m pytest -q` (API contract, Phase 2 safety/fallback, session lock, post-LLM override, and app-level rate limiting).
 
 ## Phase 3 (standalone frontend) — finalized stack
 
-- **UI:** Vite + React + TypeScript (see `docs/IMPLEMENTATION_PLAN.md`).
+- **UI source:** `web/` — Vite + React + TypeScript (see `docs/IMPLEMENTATION_PLAN.md`).
 - **Frontend hosting:** Vercel (public URL; env-based `VITE_API_BASE_URL` to the API).
 - **API hosting:** Render (FastAPI; CORS must allow the Vercel and local dev origins).
+
+**Local dev:** start the API (`uvicorn` — see `docs/DEV_COMMANDS.md`), then in `web/` create/update `.env` manually from `.env.example`, run `npm install`, and `npm run dev`.
 
 ## Project docs (start here)
 
@@ -30,6 +32,7 @@ It is not a therapist or emergency service and does not provide diagnosis or med
 - `docs/API_CONTRACT.md` - `/api/v1/chat` request/response schema and runtime behavior contract.
 
 ### Supporting docs
+- `web/README.md` - Phase 3 UI: install, dev server, build output.
 - `docs/DEV_COMMANDS.md` - Common commands (venv, uvicorn, curl, Render).
 - `docs/TEST_PROMPT_CORPUS.json` - Starter safety regression prompts for policy/testing checks.
 - `docs/DECISIONS_LOG.md` - Record of product/safety decisions and scope changes over time.

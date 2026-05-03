@@ -28,7 +28,10 @@ class Settings(BaseSettings):
     # When the model returns empty reply_text after stripping.
     empty_reply_fallback: str = Field(default="I'm here with you.", min_length=1, max_length=500)
 
-    mindcare_cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    mindcare_cors_origins: str = (
+        "http://localhost:3000,http://127.0.0.1:3000,"
+        "http://localhost:5173,http://127.0.0.1:5173"
+    )
 
     @property
     def cors_origin_list(self) -> list[str]:

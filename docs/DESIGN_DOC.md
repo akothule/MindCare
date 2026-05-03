@@ -41,8 +41,8 @@
 **Architecture (MVP):**
 
 * Frontend:  
-  * Simple web chat UI hosted separately (static host or SPA): e.g. GitHub Pages, Netlify, Vercel, Cloudflare Pages—or embedded in any page (including Google Sites via iframe) if you want a free wrapper.  
-  * Can later be replaced with a dedicated web app; the API contract stays the same.  
+  * **MVP UI** is a small SPA in-repo under **`web/`** (Vite + React + TypeScript), deployed to a static host (primary plan: **Vercel**). Equivalent hosts include Netlify, Cloudflare Pages, or GitHub Pages. You can still embed that URL in another page (e.g. iframe) if needed; the API contract stays the same.  
+  * A fuller multi-page app can come later (Phase 6); the same `/api/v1/chat` contract still applies.  
 * Backend (core):  
   * Python/FastAPI REST API with main endpoint /api/v1/chat.  
   * Integrates with an LLM provider to generate responses.  

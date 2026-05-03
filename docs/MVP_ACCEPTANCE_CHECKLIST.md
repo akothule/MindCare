@@ -2,10 +2,11 @@
 
 Use this checklist to decide whether MVP is ready for first demo/use.
 
-## Current status snapshot (2026-05-02)
+## Current status snapshot (2026-05-03)
 
 - Backend and MVP Gate 2 policy behavior are implemented and covered by pytest.
 - App-level chat rate limiting is implemented at 20 requests per 5 minutes per session and per hashed IP, with `429` responses when exceeded.
+- Standalone Phase 3 UI is implemented in **`web/`** (Vite + React + TypeScript); production deploy to Vercel is a separate step when you are ready.
 
 Checkboxes marked `[x]` below reflect verification against this repository and `python3 -m pytest -q` (plus code review for logging and `.gitignore`), except where the line explicitly requires the live frontend or human sign-off.
 

@@ -34,7 +34,7 @@ Track policy and product decisions that affect implementation.
 
 - **Safety layer status**: Implemented deterministic safety/fallback behavior in backend chat handler and validated with automated pytest coverage.
 - **Session incident handling**: Added in-memory high-risk turn counting and 3+ high-risk session lock behavior for MVP.
-- **Test posture**: Converted scaffold Phase 2 checks into active tests for medium/high template routing, fallback path, post-LLM override, and session lock.
+- **Test posture**: Converted early Phase 2 checks into active tests for medium/high template routing, fallback path, post-LLM override, and session lock.
 - **Outstanding MVP gap**: Rate limiting remained pending at this milestone and required completion before final MVP acceptance sign-off.
 
 ## 2026-05-02 (Rate limiting implementation complete)

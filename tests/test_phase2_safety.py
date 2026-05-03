@@ -5,8 +5,6 @@ from fastapi.testclient import TestClient
 
 from mindcare.main import app
 from mindcare.schemas import LLMStructuredPayload
-from mindcare.session_store import get_session_store
-
 
 client = TestClient(app)
 
@@ -19,14 +17,7 @@ def _payload(message: str) -> dict:
     return {"message": message, "metadata": {"locale": "en-US"}}
 
 
-def _reset_store() -> None:
-    store = get_session_store()
-    store._sessions.clear()  # noqa: SLF001
-    store._high_risk_counts.clear()  # noqa: SLF001
-
-
 def test_corpus_medium_and_high_cases_route_without_llm() -> None:
-    _reset_store()
     for case in _CASES:
         if case["expected_policy_action"] not in {"medium_template", "high_template"}:
             continue
@@ -39,8 +30,6 @@ def test_corpus_medium_and_high_cases_route_without_llm() -> None:
 
 
 def test_corpus_low_cases_stay_normal_with_mocked_llm(monkeypatch) -> None:
-    _reset_store()
-
     def _fake_ok(_history, latest_user_message):
         assert latest_user_message
         return LLMStructuredPayload(
@@ -63,8 +52,6 @@ def test_corpus_low_cases_stay_normal_with_mocked_llm(monkeypatch) -> None:
 
 
 def test_parser_failure_returns_contract_fallback_200(monkeypatch) -> None:
-    _reset_store()
-
     def _boom(*_args, **_kwargs):
         raise ValueError("simulated parser failure")
 
@@ -79,7 +66,6 @@ def test_parser_failure_returns_contract_fallback_200(monkeypatch) -> None:
 
 
 def test_three_high_risk_turns_enable_session_lock() -> None:
-    _reset_store()
     session_id = None
     for _ in range(3):
         req = _payload("I want to kill myself.")
@@ -99,8 +85,6 @@ def test_three_high_risk_turns_enable_session_lock() -> None:
 
 
 def test_post_llm_disallowed_output_is_overridden(monkeypatch) -> None:
-    _reset_store()
-
     def _unsafe_llm(_history, _latest_user_message):
         return LLMStructuredPayload(
             reply_text="Here is step-by-step how to hurt yourself.",

@@ -8,8 +8,9 @@ Run these from the **repository root** (the directory that contains `mindcare/` 
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env               # then edit .env — never commit .env
 ```
+
+Create or update `.env` manually using `.env.example` as the template. Never commit `.env`.
 
 Required for live chat responses: set **`ANTHROPIC_API_KEY`** in `.env` (see `.env.example`).
 
@@ -28,6 +29,18 @@ uvicorn mindcare.main:app --reload --host 0.0.0.0 --port 8000
 - Chat: `POST http://127.0.0.1:8000/api/v1/chat`
 
 **Note:** `.env` is loaded from the **repo root** automatically (`mindcare/config.py`), even if your shell’s current directory differs slightly—still prefer running `uvicorn` from the repo root.
+
+## Run the Phase 3 web UI locally (Vite)
+
+From the repo root:
+
+```bash
+cd web
+npm install               # first time only
+npm run dev
+```
+
+Open the URL Vite prints (usually `http://localhost:5173`). Before starting the UI, create/update `web/.env` manually from `web/.env.example` and set `VITE_API_BASE_URL` (for local API, use `http://127.0.0.1:8000`). Also ensure **`MINDCARE_CORS_ORIGINS`** includes that UI origin (defaults in `mindcare/config.py` include port **5173**).
 
 ### Quick `curl` checks
 
@@ -72,8 +85,8 @@ python3 -m pytest -q
 ```
 
 Current coverage highlights:
-- `tests/test_api.py`: health endpoints, request validation, baseline contract shape, high-risk fixed template, parser fallback 200 behavior.
-- `tests/test_phase2_safety_scaffold.py`: corpus-driven safety routing checks, low-risk mocked normal path, repeated high-risk session lock, post-LLM unsafe-output override.
+- `tests/test_api.py`: health endpoints, request validation, baseline contract shape, high-risk fixed template, parser fallback 200 behavior, per-session and per-IP rate limits.
+- `tests/test_phase2_safety.py`: corpus-driven safety routing, low-risk mocked normal path, repeated high-risk session lock, post-LLM unsafe-output override.
 
 ## Render (production-style host)
 
