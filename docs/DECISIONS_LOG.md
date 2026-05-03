@@ -35,7 +35,20 @@ Track policy and product decisions that affect implementation.
 - **Safety layer status**: Implemented deterministic safety/fallback behavior in backend chat handler and validated with automated pytest coverage.
 - **Session incident handling**: Added in-memory high-risk turn counting and 3+ high-risk session lock behavior for MVP.
 - **Test posture**: Converted scaffold Phase 2 checks into active tests for medium/high template routing, fallback path, post-LLM override, and session lock.
-- **Outstanding MVP gap**: Rate limiting remains pending implementation and should be completed before final MVP acceptance sign-off.
+- **Outstanding MVP gap**: Rate limiting remained pending at this milestone and required completion before final MVP acceptance sign-off.
+
+## 2026-05-02 (Rate limiting implementation complete)
+
+- **MVP rate limiting status**: Implemented app-level chat rate limiting at 20 requests per 5 minutes per session and per hashed IP.
+- **HTTP behavior**: When chat rate limits are exceeded, `/api/v1/chat` returns `429` with a retry-later message.
+- **Verification**: Added automated pytest coverage for both per-session and per-IP throttling behavior.
+
+## 2026-05-03 (Phase 3 web stack finalized)
+
+- **Phase 3 UI toolchain**: Vite + React + TypeScript for the standalone public page (build, components, typed API client).
+- **Phase 3 frontend hosting**: Vercel (HTTPS, CDN, previews, optional custom domain).
+- **API hosting**: Render for the FastAPI service (aligned with existing MVP backend decision); secrets stay server-side.
+- **Integration**: Browser calls Render from the Vercel origin; CORS allowlist must include Vercel production and local Vite dev; frontend uses env-based API base URL (e.g. `VITE_API_BASE_URL`).
 
 ## Pending
 

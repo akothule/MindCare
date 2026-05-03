@@ -81,7 +81,37 @@ Record all finalized choices in `docs/DECISIONS_LOG.md`.
 
 **Output:** /chat now always returns policy‑compliant responses with explicit risk flags.
 
-## Phase 3 – Data layer and privacy (post-MVP)
+## Phase 3 – Minimal standalone frontend
+
+### Finalized tech stack (implementation)
+
+| Layer | Choice | Role |
+|------|--------|------|
+| UI toolchain | **Vite** | Dev server, fast rebuilds, production bundling of JS/CSS/assets (`npm run dev` / `npm run build`). |
+| UI library | **React** | Component model for chat, header, and crisis banner; scales to more screens without a rewrite. |
+| Language | **TypeScript** | Types for API request/response shapes and UI state; catches mistakes before runtime. |
+| Frontend host | **Vercel** | HTTPS, CDN, deploy previews, custom domain; serves the static/SPA build output. |
+| API host | **Render** | Runs the FastAPI app (`/api/v1/chat`); holds secrets (e.g. LLM key); already the MVP backend target. |
+
+**Why Vite + React + TypeScript together:** Vite handles *build tooling*; React handles *UI structure*; TypeScript handles *correctness* for anything that talks to your contract (`docs/API_CONTRACT.md`). You can add routes and components later (Phase 5–6) without replacing that trio.
+
+**Cross-cutting (do not skip):**
+
+* Frontend reads API base URL from env (e.g. `VITE_API_BASE_URL`); never hard-code production API URLs in source.
+* Backend `mindcare_cors_origins` must include the Vercel production origin (and local Vite origin, typically `http://localhost:5173`, for development).
+* Public marketing links (e.g. Rebrandly) point at the **Vercel** URL; the Render API URL is for `fetch` only.
+
+1. Single-page experience  
+* One **primary** public URL: branding (logo), title, tagline, short guidance, then chat (no third-party site shell).  
+* Chat: message list, input, Send; `POST /api/v1/chat` with `session_id` in `localStorage`.  
+* Risk UX: persistent resources banner when `risk_level` is medium or high, aligned with `docs/CRISIS_COPY.md` and API `resources`.  
+2. Ship and verify  
+* Build with Vite; deploy static output to **Vercel**; keep API on **Render**.  
+* Confirm mobile layout, CORS, and error handling (`400`, `429`, `503`, etc.); HTTPS only (no mixed content).
+
+**Output:** one shareable URL (Vercel) where users open MindCare, see your branding, and chat with the Render-hosted API.
+
+## Phase 4 – Data layer and privacy (post-MVP)
 
 1. DB selection and connection  
 * Choose a hosted Postgres (e.g., Supabase/Neon) or Firestore.  
@@ -105,21 +135,6 @@ Record all finalized choices in `docs/DECISIONS_LOG.md`.
 
 **Output:** persistence, consent, and retention become available after MVP launch.
 
-## Phase 4 – Minimal frontend and Google Sites integration
-
-1. Prototype chat frontend  
-* Create a very simple HTML/JS or small React/Vite app:  
-  * Text input, message list, “Send” button, typing indicator.  
-  * It calls /api/v1/chat with session\_id (persisted in localStorage).  
-* Handle risk flags visually (e.g., show a banner if risk\_level is medium/high).  
-2. Host the frontend  
-* Deploy static assets to Netlify/Vercel or GitHub Pages.  
-3. ​Embed in Google Sites  
-* Use “Embed → By URL” or iframe to include the chat UI on your existing MindCare Site.  
-* ​Verify mobile behavior and cross‑origin issues (CORS, mixed content).
-
-**Output:** real users can talk to MindCare via Google Sites, backed by your new stack.
-
 ## Phase 5 – Productizing and UX improvements
 
 1. Refine conversation style  
@@ -136,7 +151,7 @@ Record all finalized choices in `docs/DECISIONS_LOG.md`.
 * Add structured logging (request ID, session ID, risk level, response time).  
 * Set up basic dashboards/alerts on high‑risk message frequency or error rates.
 
-## Phase 6 – Dedicated web app (dropping Google Sites)
+## Phase 6 – Dedicated web app (multi-page, richer UX)
 
 1. Full web app  
 * Build a Next.js or full React app with:  
@@ -146,8 +161,8 @@ Record all finalized choices in `docs/DECISIONS_LOG.md`.
 2. Optional accounts  
 * If you ever add persistent user accounts, implement auth (e.g., passwordless email login or OAuth) and update schema to link sessions to users.  
 * Re‑evaluate privacy/PHI risk before storing any contact info.  
-3. Decommission Google Sites  
-* Redirect visitors from the old Site to the new domain (or keep it as a simple pointer).
+3. Consolidate the product URL  
+* Point your primary domain at the dedicated app; optionally keep a short redirect from any legacy URLs so bookmarks still work.
 
 ## Phase 7 – Evaluation and ethics
 

@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     # Aligns with docs/API_CONTRACT.md and docs/DESIGN_DOC.md (8–10 turns).
     max_message_length: int = Field(default=2000, ge=1, le=50_000)
     max_session_turns: int = Field(default=10, ge=1, le=100)
+    rate_limit_max_requests: int = Field(default=20, ge=1, le=10_000)
+    rate_limit_window_seconds: int = Field(default=300, ge=1, le=86_400)
 
     # When the model returns empty reply_text after stripping.
     empty_reply_fallback: str = Field(default="I'm here with you.", min_length=1, max_length=500)

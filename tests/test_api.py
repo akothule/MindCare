@@ -84,3 +84,33 @@ def test_chat_parser_failure_returns_fallback_200(monkeypatch) -> None:
     assert body["policy_action"] == "fallback"
     assert body["fallback_reason"] == "llm_parse_failed"
     assert "If you are outside the U.S." in body["reply_text"]
+
+
+def test_chat_rate_limit_applies_per_session() -> None:
+    first = client.post("/api/v1/chat", json={"message": "I want to kill myself."})
+    assert first.status_code == 200
+    session_id = first.json()["session_id"]
+
+    for _ in range(19):
+        resp = client.post(
+            "/api/v1/chat",
+            json={"session_id": session_id, "message": "I want to kill myself."},
+        )
+        assert resp.status_code == 200
+
+    blocked = client.post(
+        "/api/v1/chat",
+        json={"session_id": session_id, "message": "I want to kill myself."},
+    )
+    assert blocked.status_code == 429
+    assert "Rate limit exceeded" in blocked.json()["detail"]
+
+
+def test_chat_rate_limit_applies_per_ip_across_sessions() -> None:
+    for _ in range(20):
+        resp = client.post("/api/v1/chat", json={"message": "I want to kill myself."})
+        assert resp.status_code == 200
+
+    blocked = client.post("/api/v1/chat", json={"message": "I want to kill myself."})
+    assert blocked.status_code == 429
+    assert "Rate limit exceeded" in blocked.json()["detail"]

@@ -4,10 +4,11 @@ import time
 from uuid import uuid4
 
 import anthropic
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from mindcare.config import get_settings
 from mindcare.llm import complete_chat_turn
+from mindcare.rate_limiter import get_chat_rate_limiter
 from mindcare.schemas import ChatRequest, ChatResponse, ResourceItem
 from mindcare.session_store import get_session_store
 
@@ -105,7 +106,7 @@ def _max_risk(a: str, b: str) -> str:
 
 
 @router.post("/chat", response_model=ChatResponse)
-def chat(req: ChatRequest) -> ChatResponse:
+def chat(req: ChatRequest, request: Request) -> ChatResponse:
     settings = get_settings()
     max_len = settings.max_message_length
     started = time.perf_counter()
@@ -120,6 +121,19 @@ def chat(req: ChatRequest) -> ChatResponse:
 
     store = get_session_store()
     session_id = store.get_or_create_session_id(req)
+    limiter = get_chat_rate_limiter(
+        max_requests=settings.rate_limit_max_requests,
+        window_seconds=settings.rate_limit_window_seconds,
+    )
+    client_ip = request.client.host if request.client and request.client.host else "unknown"
+    if not limiter.allow(session_id=session_id, client_ip=client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Rate limit exceeded. Maximum {settings.rate_limit_max_requests} "
+                f"requests per {settings.rate_limit_window_seconds} seconds."
+            ),
+        )
     request_id = str(uuid4())
     pre_risk = _pre_llm_risk(msg)
     high_risk_count = store.high_risk_count(session_id)

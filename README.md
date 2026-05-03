@@ -14,6 +14,12 @@ It is not a therapist or emergency service and does not provide diagnosis or med
   - repeated high-risk session lock after 3+ high-risk turns
 - Test command: `python3 -m pytest -q` (current suite covers API contract + Phase 2 safety/fallback behavior).
 
+## Phase 3 (standalone frontend) — finalized stack
+
+- **UI:** Vite + React + TypeScript (see `docs/IMPLEMENTATION_PLAN.md`).
+- **Frontend hosting:** Vercel (public URL; env-based `VITE_API_BASE_URL` to the API).
+- **API hosting:** Render (FastAPI; CORS must allow the Vercel and local dev origins).
+
 ## Project docs (start here)
 
 ### Core docs
