@@ -50,6 +50,16 @@ Track policy and product decisions that affect implementation.
 - **API hosting**: Render for the FastAPI service (aligned with existing MVP backend decision); secrets stay server-side.
 - **Integration**: Browser calls Render from the Vercel origin; CORS allowlist must include Vercel production and local Vite dev; frontend uses env-based API base URL (e.g. `VITE_API_BASE_URL`).
 
+## 2026-05-03 (Phase 3 local implementation complete)
+
+- **In-repo deliverable**: The **`web/`** SPA implements the Phase 3 scope in `docs/IMPLEMENTATION_PLAN.md` for local development and production builds (`npm run build` → `web/dist/`).
+- **Not bundled in “local complete”**: Hosting the static build on Vercel (or equivalent) and end-to-end verification on production URLs remain operational follow-ups; they do not block treating Phase 3 **code** as done in this repository.
+
+## 2026-05-03 (`/chat` pipeline debug logging)
+
+- **Flag**: `MINDCARE_CHAT_DEBUG` in repo-root `.env` (documented in `.env.example` and `docs/DEV_COMMANDS.md`).
+- **Output**: Multiline `[chat-debug]` summaries per successful chat request at **WARNING**, so they appear with uvicorn default logging without a custom handler. May include a short user message preview; keep disabled in production unless you accept that in logs.
+
 ## Pending
 
 - None.

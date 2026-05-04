@@ -1,6 +1,6 @@
 # MindCare web (Phase 3)
 
-Vite + React + TypeScript UI for `POST /api/v1/chat`.
+Vite + React + TypeScript UI for `POST /api/v1/chat`. **Phase 3 is implemented in this folder** (local dev + `npm run build`); deploying `dist/` to your static host (e.g. Vercel) is documented at the repo level in `docs/IMPLEMENTATION_PLAN.md` and `README.md`.
 
 ## Setup
 

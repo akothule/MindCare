@@ -85,20 +85,120 @@ def _with_disclaimer(template_body: str) -> str:
     return f"{template_body}\n\n{_LOCATION_DISCLAIMER}"
 
 
-def _matches_any(text: str, patterns: list[str]) -> bool:
-    return any(re.search(p, text, flags=re.IGNORECASE) for p in patterns)
+def _pre_llm_risk_and_notes(message: str) -> tuple[str, list[str]]:
+    """Classify pre-LLM risk (same rules as policy) and list which regexes matched, for debug logs."""
+    notes: list[str] = []
+    for bucket, patterns in (
+        ("high_keyword", _HIGH_PATTERNS),
+        ("injection_keyword", _INJECTION_PATTERNS),
+    ):
+        for p in patterns:
+            if re.search(p, message, flags=re.IGNORECASE):
+                notes.append(f"{bucket}: {p}")
+    if notes:
+        return "high", notes
+    medium_hits: list[str] = []
+    for p in _MEDIUM_PATTERNS:
+        if re.search(p, message, flags=re.IGNORECASE):
+            medium_hits.append(f"medium_keyword: {p}")
+    if medium_hits:
+        return "medium", medium_hits
+    return "low", []
 
 
 def _pre_llm_risk(message: str) -> str:
-    if _matches_any(message, _HIGH_PATTERNS) or _matches_any(message, _INJECTION_PATTERNS):
-        return "high"
-    if _matches_any(message, _MEDIUM_PATTERNS):
-        return "medium"
-    return "low"
+    return _pre_llm_risk_and_notes(message)[0]
 
 
-def _is_disallowed_output(text: str) -> bool:
-    return _matches_any(text, _DISALLOWED_REPLY_PATTERNS)
+def _disallowed_pattern_hits(text: str) -> list[str]:
+    hits: list[str] = []
+    for p in _DISALLOWED_REPLY_PATTERNS:
+        if re.search(p, text, flags=re.IGNORECASE):
+            hits.append(p)
+    return hits
+
+
+def _one_line_preview(text: str, max_chars: int = 140) -> str:
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= max_chars:
+        return collapsed
+    return collapsed[: max_chars - 1] + "…"
+
+
+def _chat_debug_log(settings, lines: list[str]) -> None:
+    """Multiline per-turn trace; WARNING so it shows with uvicorn's default log setup."""
+    if not settings.mindcare_chat_debug:
+        return
+    logger.warning("[chat-debug]\n%s", "\n".join(lines))
+
+
+def _chat_debug_request(
+    settings,
+    *,
+    request_id: str,
+    session_id: str,
+    msg: str,
+    pre_risk: str,
+    keyword_notes: list[str],
+    high_risk_count: int,
+    history_message_count: int,
+) -> None:
+    lines = [
+        f"request_id={request_id}",
+        f"session_id={session_id}",
+        "--- /chat pipeline: request ---",
+        f"user_message_chars={len(msg)}",
+        f"user_message_preview={_one_line_preview(msg)}",
+        f"prior_messages_in_prompt={history_message_count}",
+        f"pre_llm_risk={pre_risk}",
+        f"session_high_risk_turns_before_this_message={high_risk_count}",
+    ]
+    if keyword_notes:
+        lines.append("pre_llm_keyword_hits:")
+        lines.extend(f"  - {n}" for n in keyword_notes)
+    else:
+        lines.append("pre_llm_keyword_hits: (none)")
+    _chat_debug_log(settings, lines)
+
+
+def _chat_debug_outcome(
+    settings,
+    *,
+    request_id: str,
+    session_id: str,
+    path_summary: str,
+    risk_level: str,
+    policy_action: str,
+    trigger_source: str,
+    fallback_reason: str | None,
+    reply_preview: str,
+    llm_risk_before_template: str | None = None,
+    llm_suggested_policy: str | None = None,
+    disallowed_pattern_hits: list[str] | None = None,
+    merged_final_risk: str | None = None,
+) -> None:
+    fr = fallback_reason if fallback_reason is not None else "(none)"
+    lines = [
+        f"request_id={request_id}",
+        f"session_id={session_id}",
+        "--- /chat pipeline: outcome ---",
+        f"path={path_summary}",
+        f"response_risk_level={risk_level}",
+        f"policy_action={policy_action}",
+        f"trigger_source={trigger_source}",
+        f"fallback_reason={fr}",
+        f"reply_preview={_one_line_preview(reply_preview, max_chars=200)}",
+    ]
+    if merged_final_risk is not None:
+        lines.append(f"merged_risk_pre_plus_model={merged_final_risk}")
+    if llm_risk_before_template is not None:
+        lines.append(f"llm_json_risk_level={llm_risk_before_template}")
+    if llm_suggested_policy is not None:
+        lines.append(f"llm_json_suggested_policy_action={llm_suggested_policy}")
+    if disallowed_pattern_hits:
+        lines.append("post_llm_disallowed_hits (raw model reply was replaced):")
+        lines.extend(f"  - {h}" for h in disallowed_pattern_hits)
+    _chat_debug_log(settings, lines)
 
 
 def _max_risk(a: str, b: str) -> str:
@@ -135,10 +235,20 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             ),
         )
     request_id = str(uuid4())
-    pre_risk = _pre_llm_risk(msg)
+    pre_risk, pre_keyword_notes = _pre_llm_risk_and_notes(msg)
     high_risk_count = store.high_risk_count(session_id)
 
     history_before = store.history_for_prompt(session_id)
+    _chat_debug_request(
+        settings,
+        request_id=request_id,
+        session_id=session_id,
+        msg=msg,
+        pre_risk=pre_risk,
+        keyword_notes=pre_keyword_notes,
+        high_risk_count=high_risk_count,
+        history_message_count=len(history_before),
+    )
 
     def _template_response(
         *,
@@ -147,6 +257,12 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
         policy_action: str,
         fallback_reason: str | None,
         trigger_source: str,
+        path_summary: str,
+        debug_llm_risk: str | None = None,
+        debug_llm_policy: str | None = None,
+        debug_discarded_reply: str | None = None,
+        debug_disallowed_hits: list[str] | None = None,
+        debug_merged_risk: str | None = None,
     ) -> ChatResponse:
         if risk_level == "high":
             store.increment_high_risk(session_id)
@@ -163,6 +279,31 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             trigger_source,
             latency_ms,
         )
+        _chat_debug_outcome(
+            settings,
+            request_id=request_id,
+            session_id=session_id,
+            path_summary=path_summary,
+            risk_level=risk_level,
+            policy_action=policy_action,
+            trigger_source=trigger_source,
+            fallback_reason=fallback_reason,
+            reply_preview=template,
+            llm_risk_before_template=debug_llm_risk,
+            llm_suggested_policy=debug_llm_policy,
+            disallowed_pattern_hits=debug_disallowed_hits,
+            merged_final_risk=debug_merged_risk,
+        )
+        if debug_discarded_reply:
+            _chat_debug_log(
+                settings,
+                [
+                    f"request_id={request_id}",
+                    f"session_id={session_id}",
+                    "--- discarded model reply (not sent to client) ---",
+                    _one_line_preview(debug_discarded_reply, max_chars=280),
+                ],
+            )
         return ChatResponse(
             session_id=session_id,
             request_id=request_id,
@@ -181,6 +322,7 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             policy_action="high_template",
             fallback_reason=None,
             trigger_source="session_lock",
+            path_summary="Session already had ≥3 high-risk turns → crisis template only; LLM not called.",
         )
 
     if pre_risk == "high":
@@ -190,6 +332,7 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             policy_action="high_template",
             fallback_reason=None,
             trigger_source="pre_llm",
+            path_summary="Pre-LLM keyword/rules matched (high or injection) → fixed high template; LLM not called.",
         )
 
     if pre_risk == "medium":
@@ -199,6 +342,7 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             policy_action="medium_template",
             fallback_reason=None,
             trigger_source="pre_llm",
+            path_summary="Pre-LLM keyword/rules matched (medium) → fixed medium template; LLM not called.",
         )
 
     try:
@@ -215,6 +359,7 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             policy_action="fallback",
             fallback_reason="llm_parse_failed",
             trigger_source="fallback",
+            path_summary="LLM response was not valid JSON / schema → medium template fallback.",
         )
     except anthropic.APIStatusError as e:
         logger.warning(
@@ -273,13 +418,20 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
     reply = structured.reply_text.strip() or settings.empty_reply_fallback
     final_risk = _max_risk(pre_risk, structured.risk_level)
 
-    if _is_disallowed_output(reply):
+    disallowed_hits = _disallowed_pattern_hits(reply)
+    if disallowed_hits:
         return _template_response(
             template=_with_disclaimer(_HIGH_TEMPLATE_BODY),
             risk_level="high",
             policy_action="high_template",
             fallback_reason="post_llm_disallowed_output",
             trigger_source="post_llm",
+            path_summary="Model reply matched post-LLM safety blocklist → high template; model text discarded.",
+            debug_llm_risk=structured.risk_level,
+            debug_llm_policy=structured.suggested_policy_action,
+            debug_discarded_reply=reply,
+            debug_disallowed_hits=disallowed_hits,
+            debug_merged_risk=final_risk,
         )
 
     if final_risk == "high":
@@ -289,6 +441,11 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             policy_action="high_template",
             fallback_reason=None,
             trigger_source="llm",
+            path_summary="LLM JSON indicated high risk (or merged risk is high) → fixed high template; model reply discarded.",
+            debug_llm_risk=structured.risk_level,
+            debug_llm_policy=structured.suggested_policy_action,
+            debug_discarded_reply=reply,
+            debug_merged_risk=final_risk,
         )
 
     if final_risk == "medium":
@@ -298,6 +455,11 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             policy_action="medium_template",
             fallback_reason=None,
             trigger_source="llm",
+            path_summary="LLM JSON indicated medium risk → fixed medium template; model reply discarded.",
+            debug_llm_risk=structured.risk_level,
+            debug_llm_policy=structured.suggested_policy_action,
+            debug_discarded_reply=reply,
+            debug_merged_risk=final_risk,
         )
 
     store.append_user_message(session_id, msg)
@@ -309,6 +471,20 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
         session_id,
         final_risk,
         latency_ms,
+    )
+    _chat_debug_outcome(
+        settings,
+        request_id=request_id,
+        session_id=session_id,
+        path_summary="LLM path: pre-LLM was low; model reply passed post-LLM checks; normal reply returned.",
+        risk_level="low",
+        policy_action="normal",
+        trigger_source="llm",
+        fallback_reason=None,
+        reply_preview=reply,
+        llm_risk_before_template=structured.risk_level,
+        llm_suggested_policy=structured.suggested_policy_action,
+        merged_final_risk=final_risk,
     )
     return ChatResponse(
         session_id=session_id,

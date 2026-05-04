@@ -14,11 +14,11 @@ It is not a therapist or emergency service and does not provide diagnosis or med
   - repeated high-risk session lock after 3+ high-risk turns
 - Test command: `python3 -m pytest -q` (API contract, Phase 2 safety/fallback, session lock, post-LLM override, and app-level rate limiting).
 
-## Phase 3 (standalone frontend) — finalized stack
+## Phase 3 (standalone frontend) — status
 
-- **UI source:** `web/` — Vite + React + TypeScript (see `docs/IMPLEMENTATION_PLAN.md`).
-- **Frontend hosting:** Vercel (public URL; env-based `VITE_API_BASE_URL` to the API).
-- **API hosting:** Render (FastAPI; CORS must allow the Vercel and local dev origins).
+- **Implementation (local / repo):** **Complete.** UI lives in **`web/`** (Vite + React + TypeScript): branded single page, chat to `POST /api/v1/chat`, `session_id` in browser storage, crisis resources banner on medium/high-risk replies, typed client and `npm run build` output under `web/dist/`. Details: `docs/IMPLEMENTATION_PLAN.md` § Phase 3, `web/README.md`.
+- **Stack choices:** Frontend host **Vercel** (public URL; env-based `VITE_API_BASE_URL` to the API); API on **Render** (CORS must allow Vercel production and local Vite, typically `http://localhost:5173`).
+- **Shipping:** Deploying `web/dist` to Vercel and validating HTTPS + CORS in production is a separate ops step from “Phase 3 done” in code.
 
 **Local dev:** start the API (`uvicorn` — see `docs/DEV_COMMANDS.md`), then in `web/` create/update `.env` manually from `.env.example`, run `npm install`, and `npm run dev`.
 

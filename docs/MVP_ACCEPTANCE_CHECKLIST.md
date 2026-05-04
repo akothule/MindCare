@@ -6,7 +6,7 @@ Use this checklist to decide whether MVP is ready for first demo/use.
 
 - Backend and MVP Gate 2 policy behavior are implemented and covered by pytest.
 - App-level chat rate limiting is implemented at 20 requests per 5 minutes per session and per hashed IP, with `429` responses when exceeded.
-- Standalone Phase 3 UI is implemented in **`web/`** (Vite + React + TypeScript); production deploy to Vercel is a separate step when you are ready.
+- **Phase 3 (local) is complete:** the standalone UI in **`web/`** (Vite + React + TypeScript) matches the Phase 3 plan: branding + chat, `session_id` in `localStorage`, env-based API base URL, persistent crisis resources banner after medium- or high-risk turns (using API `resources`), and non-fatal error display. **`npm run build`** produces deployable static assets; pointing a public host (e.g. Vercel) at **`web/dist`** and allowlisting origins in CORS is a separate shipping task, not a code gap.
 
 Checkboxes marked `[x]` below reflect verification against this repository and `python3 -m pytest -q` (plus code review for logging and `.gitignore`), except where the line explicitly requires the live frontend or human sign-off.
 
@@ -38,14 +38,14 @@ Checkboxes marked `[x]` below reflect verification against this repository and `
 - [x] MVP uses one safety policy for all users (no age-differentiated behavior).
 - [x] After 3+ high-risk turns in a session, normal conversational replies are suppressed.
 - [x] In 3+ high-risk mode, crisis template responses continue.
-- [ ] UI keeps a persistent crisis resources banner visible after high-risk responses.
+- [x] UI keeps a persistent crisis resources banner visible after medium- or high-risk responses (banner stays until the user starts a new conversation; resources come from the API on template paths).
 
 ## MVP Gate 4 - Frontend integration and UX checks (must pass for demo)
 
-- [ ] User can send/receive messages end-to-end.
-- [ ] Frontend persists `session_id` locally for active session continuity.
-- [ ] Risk-triggered UI behavior works (banner shown on high risk).
-- [ ] Frontend handles backend errors gracefully without breaking session.
+- [x] User can send/receive messages end-to-end (local: API + `web/` with `VITE_API_BASE_URL` set per `web/.env.example`).
+- [x] Frontend persists `session_id` locally for active session continuity (`localStorage`).
+- [x] Risk-triggered UI behavior works (banner shown when `risk_level` is `medium` or `high` and `resources` is non-empty).
+- [x] Frontend handles backend errors gracefully without breaking session (inline error message; `session_id` and chat history preserved unless the user resets).
 
 ## MVP Gate 5 - Reliability, observability, and security (must pass)
 

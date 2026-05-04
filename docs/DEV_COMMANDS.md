@@ -30,7 +30,13 @@ uvicorn mindcare.main:app --reload --host 0.0.0.0 --port 8000
 
 **Note:** `.env` is loaded from the **repo root** automatically (`mindcare/config.py`), even if your shell’s current directory differs slightly—still prefer running `uvicorn` from the repo root.
 
+### Optional: `/chat` pipeline debug logs
+
+Set **`MINDCARE_CHAT_DEBUG=true`** in the **repo-root** `.env` (not `web/.env`), then restart uvicorn. Each successful `POST /api/v1/chat` emits **`[chat-debug]`** blocks at **WARNING** (visible with uvicorn default log settings); see `mindcare/routers/chat.py`. Previews may include user text; keep the flag off in production. The separate `chat_policy_*` lines stay at **INFO** and may not show in the terminal unless you configure logging.
+
 ## Run the Phase 3 web UI locally (Vite)
+
+Phase 3 UI **implementation** in this repo is complete; this section is how you run and build it locally (and produce `web/dist/` for static hosting).
 
 From the repo root:
 

@@ -12,7 +12,12 @@ load_dotenv(_ENV_FILE)
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(extra="ignore")
+    model_config = SettingsConfigDict(
+        extra="ignore",
+        # Same file as load_dotenv above; pydantic also merges these so .env is picked up consistently.
+        env_file=_ENV_FILE,
+        env_file_encoding="utf-8",
+    )
 
     anthropic_api_key: str = ""
     # Use an id from your Anthropic console / https://docs.anthropic.com/en/docs/about-claude/models
@@ -32,6 +37,10 @@ class Settings(BaseSettings):
         "http://localhost:3000,http://127.0.0.1:3000,"
         "http://localhost:5173,http://127.0.0.1:5173"
     )
+
+    # When true, emit [chat-debug] per /chat at WARNING (so they appear with default uvicorn logging).
+    # Set MINDCARE_CHAT_DEBUG in repo-root .env (not web/.env).
+    mindcare_chat_debug: bool = False
 
     @property
     def cors_origin_list(self) -> list[str]:

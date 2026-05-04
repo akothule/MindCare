@@ -113,6 +113,8 @@ Record all finalized choices in `docs/DECISIONS_LOG.md`.
 
 **Output:** one shareable URL (Vercel) where users open MindCare, see your branding, and chat with the Render-hosted API.
 
+**Status (2026-05-03, local):** The in-repo Phase 3 app under **`web/`** is implemented and buildable (Vite + React + TypeScript): single-page layout, chat against `POST /api/v1/chat`, `session_id` in `localStorage`, crisis resources banner for medium/high responses, and graceful handling of HTTP errors. The remaining step for the Phase 3 **output** above is **deploying** the static build (e.g. Vercel) and confirming CORS + HTTPS against the Render API.
+
 ## Phase 4 – Data layer and privacy (post-MVP)
 
 1. DB selection and connection  

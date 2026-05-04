@@ -41,7 +41,7 @@
 **Architecture (MVP):**
 
 * Frontend:  
-  * **MVP UI** is a small SPA in-repo under **`web/`** (Vite + React + TypeScript), deployed to a static host (primary plan: **Vercel**). Equivalent hosts include Netlify, Cloudflare Pages, or GitHub Pages. You can still embed that URL in another page (e.g. iframe) if needed; the API contract stays the same.  
+  * **MVP UI** is a small SPA in-repo under **`web/`** (Vite + React + TypeScript), implemented for local use and static builds; production deployment targets a static host (primary plan: **Vercel**). Equivalent hosts include Netlify, Cloudflare Pages, or GitHub Pages. You can still embed that URL in another page (e.g. iframe) if needed; the API contract stays the same.  
   * A fuller multi-page app can come later (Phase 6); the same `/api/v1/chat` contract still applies.  
 * Backend (core):  
   * Python/FastAPI REST API with main endpoint /api/v1/chat.  

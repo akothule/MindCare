@@ -4,9 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from mindcare.config import get_settings
 from mindcare.routers import chat
 
-app = FastAPI(title="MindCare API", version="0.1.0")
-
 _settings = get_settings()
+
+app = FastAPI(title="MindCare API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_settings.cors_origin_list,
