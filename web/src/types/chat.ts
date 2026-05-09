@@ -2,8 +2,10 @@ export type RiskLevel = 'low' | 'medium' | 'high'
 
 export type PolicyAction =
   | 'normal'
+  | 'medium_llm'
   | 'medium_template'
   | 'high_template'
+  | 'high_policy_template'
   | 'fallback'
   | 'blocked'
 

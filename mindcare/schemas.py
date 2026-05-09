@@ -3,7 +3,15 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 RiskLevel = Literal["low", "medium", "high"]
-PolicyAction = Literal["normal", "medium_template", "high_template", "fallback", "blocked"]
+PolicyAction = Literal[
+    "normal",
+    "medium_llm",
+    "medium_template",
+    "high_template",
+    "high_policy_template",
+    "fallback",
+    "blocked",
+]
 
 
 class ChatMetadata(BaseModel):

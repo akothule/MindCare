@@ -30,6 +30,15 @@ _HIGH_TEMPLATE_BODY = (
     "I am not an emergency service, but your safety matters and reaching out now can help keep you safe."
 )
 
+_HIGH_POLICY_TEMPLATE_BODY = (
+    "I can't help with anything that could seriously harm you or others, and I won't follow instructions "
+    "meant to get around how I'm meant to work.\n\n"
+    "If you are having thoughts of hurting yourself or ending your life, that matters—and you deserve real "
+    "support. In the U.S., you can call or text **988** (Suicide & Crisis Lifeline) any time, 24/7. "
+    "If you may act on these thoughts or you're in immediate danger, call **911** right away.\n\n"
+    "I'm not an emergency service, but reaching out to trained responders can help keep you safe."
+)
+
 _MEDIUM_TEMPLATE_BODY = (
     "Thank you for being honest about how hard this feels. You don't have to carry this alone.\n\n"
     "It may help to reach out to someone you trust today and connect with professional support:\n"
@@ -46,14 +55,20 @@ _RESOURCE_ITEMS = [
     ResourceItem(label="Emergency", value="Call 911 if in immediate danger"),
 ]
 
-_HIGH_PATTERNS = [
+_HIGH_CRISIS_IDEATION_PATTERNS = [
     r"\bkill myself\b",
     r"\bend my life\b",
     r"\bsuicide\b",
     r"\bhurt myself\b",
-    r"\boverdose\b",
     r"\bplan to hurt myself\b",
     r"\bwant to die\b",
+]
+
+# User is asking for methods / harm how-to (not the same as expressing personal crisis).
+_HARM_SEEKING_USER_PATTERNS = [
+    r"\bhow to (kill yourself|hurt yourself|overdose)\b",
+    r"\bbest way to\b.*?\b(kill yourself|hurt yourself|overdose)\b",
+    r"\bways to (kill yourself|hurt yourself|overdose)\b",
 ]
 
 _MEDIUM_PATTERNS = [
@@ -85,29 +100,44 @@ def _with_disclaimer(template_body: str) -> str:
     return f"{template_body}\n\n{_LOCATION_DISCLAIMER}"
 
 
-def _pre_llm_risk_and_notes(message: str) -> tuple[str, list[str]]:
-    """Classify pre-LLM risk (same rules as policy) and list which regexes matched, for debug logs."""
+def _pre_llm_classification(
+    message: str,
+) -> tuple[str, list[str], str | None]:
+    """Pre-LLM risk, debug notes, and high-path variant.
+
+    For ``pre_risk == "high"``, ``high_kind`` is ``"crisis"`` (ideation / distress) or
+    ``"policy"`` (harm-seeking requests, prompt injection). Otherwise ``None``.
+    """
     notes: list[str] = []
-    for bucket, patterns in (
-        ("high_keyword", _HIGH_PATTERNS),
-        ("injection_keyword", _INJECTION_PATTERNS),
-    ):
-        for p in patterns:
-            if re.search(p, message, flags=re.IGNORECASE):
-                notes.append(f"{bucket}: {p}")
+
+    for p in _INJECTION_PATTERNS:
+        if re.search(p, message, flags=re.IGNORECASE):
+            notes.append(f"injection_keyword: {p}")
     if notes:
-        return "high", notes
+        return "high", notes, "policy"
+
+    for p in _HARM_SEEKING_USER_PATTERNS:
+        if re.search(p, message, flags=re.IGNORECASE):
+            notes.append(f"harm_request_keyword: {p}")
+    if notes:
+        return "high", notes, "policy"
+
+    for p in _HIGH_CRISIS_IDEATION_PATTERNS:
+        if re.search(p, message, flags=re.IGNORECASE):
+            notes.append(f"high_keyword: {p}")
+    if notes:
+        return "high", notes, "crisis"
+
+    if re.search(r"\boverdose\b", message, flags=re.IGNORECASE):
+        return "high", ["high_keyword: \\boverdose\\b"], "crisis"
+
     medium_hits: list[str] = []
     for p in _MEDIUM_PATTERNS:
         if re.search(p, message, flags=re.IGNORECASE):
             medium_hits.append(f"medium_keyword: {p}")
     if medium_hits:
-        return "medium", medium_hits
-    return "low", []
-
-
-def _pre_llm_risk(message: str) -> str:
-    return _pre_llm_risk_and_notes(message)[0]
+        return "medium", medium_hits, None
+    return "low", [], None
 
 
 def _disallowed_pattern_hits(text: str) -> list[str]:
@@ -235,7 +265,7 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             ),
         )
     request_id = str(uuid4())
-    pre_risk, pre_keyword_notes = _pre_llm_risk_and_notes(msg)
+    pre_risk, pre_keyword_notes, pre_high_kind = _pre_llm_classification(msg)
     high_risk_count = store.high_risk_count(session_id)
 
     history_before = store.history_for_prompt(session_id)
@@ -326,27 +356,37 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
         )
 
     if pre_risk == "high":
+        if pre_high_kind == "policy":
+            return _template_response(
+                template=_with_disclaimer(_HIGH_POLICY_TEMPLATE_BODY),
+                risk_level="high",
+                policy_action="high_policy_template",
+                fallback_reason=None,
+                trigger_source="pre_llm",
+                path_summary=(
+                    "Pre-LLM matched harm-seeking or injection patterns → fixed policy/refusal template; "
+                    "LLM not called."
+                ),
+            )
         return _template_response(
             template=_with_disclaimer(_HIGH_TEMPLATE_BODY),
             risk_level="high",
             policy_action="high_template",
             fallback_reason=None,
             trigger_source="pre_llm",
-            path_summary="Pre-LLM keyword/rules matched (high or injection) → fixed high template; LLM not called.",
+            path_summary="Pre-LLM matched crisis/ideation patterns → fixed high template; LLM not called.",
         )
 
-    if pre_risk == "medium":
-        return _template_response(
-            template=_with_disclaimer(_MEDIUM_TEMPLATE_BODY),
-            risk_level="medium",
-            policy_action="medium_template",
-            fallback_reason=None,
-            trigger_source="pre_llm",
-            path_summary="Pre-LLM keyword/rules matched (medium) → fixed medium template; LLM not called.",
-        )
+    pre_medium_signals: list[str] | None = (
+        list(pre_keyword_notes) if pre_risk == "medium" else None
+    )
 
     try:
-        structured = complete_chat_turn(history_before, msg)
+        structured = complete_chat_turn(
+            history_before,
+            msg,
+            pre_medium_signals=pre_medium_signals,
+        )
     except RuntimeError:
         raise HTTPException(
             status_code=503,
@@ -421,12 +461,14 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
     disallowed_hits = _disallowed_pattern_hits(reply)
     if disallowed_hits:
         return _template_response(
-            template=_with_disclaimer(_HIGH_TEMPLATE_BODY),
+            template=_with_disclaimer(_HIGH_POLICY_TEMPLATE_BODY),
             risk_level="high",
-            policy_action="high_template",
+            policy_action="high_policy_template",
             fallback_reason="post_llm_disallowed_output",
             trigger_source="post_llm",
-            path_summary="Model reply matched post-LLM safety blocklist → high template; model text discarded.",
+            path_summary=(
+                "Model reply matched post-LLM safety blocklist → policy/refusal template; model text discarded."
+            ),
             debug_llm_risk=structured.risk_level,
             debug_llm_policy=structured.suggested_policy_action,
             debug_discarded_reply=reply,
@@ -449,17 +491,46 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
         )
 
     if final_risk == "medium":
-        return _template_response(
-            template=_with_disclaimer(_MEDIUM_TEMPLATE_BODY),
+        safe_reply = _with_disclaimer(reply)
+        store.append_user_message(session_id, msg)
+        store.append_assistant_message(session_id, safe_reply)
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        logger.info(
+            "chat_policy_medium_llm request_id=%s session_id=%s risk_level=medium "
+            "policy_action=medium_llm fallback_reason=None trigger_source=llm latency_ms=%s",
+            request_id,
+            session_id,
+            latency_ms,
+        )
+        trigger = "pre_llm" if pre_risk == "medium" else "llm"
+        _chat_debug_outcome(
+            settings,
+            request_id=request_id,
+            session_id=session_id,
+            path_summary=(
+                "Merged risk medium: model reply kept with disclaimer and resources "
+                "(pre-LLM medium signals forwarded to LLM when present)."
+                if trigger == "pre_llm"
+                else "Merged risk medium (from model classification): reply kept with disclaimer and resources."
+            ),
             risk_level="medium",
-            policy_action="medium_template",
+            policy_action="medium_llm",
+            trigger_source=trigger,
             fallback_reason=None,
-            trigger_source="llm",
-            path_summary="LLM JSON indicated medium risk → fixed medium template; model reply discarded.",
-            debug_llm_risk=structured.risk_level,
-            debug_llm_policy=structured.suggested_policy_action,
-            debug_discarded_reply=reply,
-            debug_merged_risk=final_risk,
+            reply_preview=safe_reply,
+            llm_risk_before_template=structured.risk_level,
+            llm_suggested_policy=structured.suggested_policy_action,
+            merged_final_risk=final_risk,
+        )
+        return ChatResponse(
+            session_id=session_id,
+            request_id=request_id,
+            reply_text=safe_reply,
+            risk_level="medium",
+            policy_action="medium_llm",
+            resources=list(_RESOURCE_ITEMS),
+            fallback_reason=None,
+            latency_ms=latency_ms,
         )
 
     store.append_user_message(session_id, msg)

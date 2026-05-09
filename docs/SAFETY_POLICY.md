@@ -106,7 +106,7 @@ Store structured fields for each turn:
 - pre_risk_level
 - llm_risk_level_suggested
 - final_risk_level
-- policy_action (normal, medium_template, high_template, blocked, fallback)
+- policy_action (normal, medium_llm, medium_template, high_template, high_policy_template, blocked, fallback)
 - safety_flags (array)
 - fallback_reason (nullable)
 - latency_ms

@@ -11,7 +11,7 @@ Track policy and product decisions that affect implementation.
 - **Location disclaimer usage**: Always include the location disclaimer line in crisis/support safety messaging.
 - **Age strategy (MVP)**: Use one safety policy for all users (no age-differentiated behavior and no age-gating flow).
 - **Repeated high-risk incident rule**: If a session reaches 3+ high-risk turns, keep crisis template responses and suppress normal conversational replies for the rest of that session.
-- **Prompt-injection / jailbreak routing (MVP)**: Treat as high-risk safety concern; use `policy_action` `high_template` (crisis path). Reserve `blocked` for other product-specific cases if needed later.
+- **Prompt-injection / jailbreak routing (MVP)**: Treat as high-risk safety concern; use `policy_action` `high_policy_template` (refusal copy with 988), distinct from ideation `high_template`. Reserve `blocked` for other product-specific cases if needed later.
 - **LLM provider**: Claude.
 - **MVP storage scope**: Remove consent and conversation storage from MVP; use ephemeral handling only. Revisit storage as a post-MVP feature.
 
@@ -20,14 +20,14 @@ Track policy and product decisions that affect implementation.
 - **MVP backend hosting**: [Render](https://render.com) web service for the FastAPI app (deploy after the API runs locally and the repo is connected to Git).
 - **Crisis copy composition**: Clarified that high/medium template bodies (§1/§2 in `CRISIS_COPY.md`) are fixed verbatim and the location disclaimer (§5) is always appended to the same message—no conflict with “exact” wording.
 - **API contract**: Renamed from “Draft” to locked MVP contract title in `API_CONTRACT.md`.
-- **Test corpus**: Documented jailbreak → `high_template` for MVP; `schema_001` as harness-only for mocked parser/LLM failures.
+- **Test corpus**: Documented jailbreak / harm-seeking → `high_policy_template`; ideation → `high_template`; `schema_001` harness-only for mocked parser/LLM failures.
 - **Decisions captured**: Rate limit and prompt-injection routing recorded here for traceability.
 
 ## 2026-04-28 (Phase 2 readiness lock)
 
 - **Fallback HTTP behavior**: For policy-safe fallbacks (including malformed model output), return `200` with `policy_action="fallback"` and a populated `fallback_reason`. Reserve `500/503` for infrastructure/runtime failures where a contract-shaped fallback cannot be produced.
 - **Deterministic policy order**: Enforce this precedence in `/api/v1/chat`: validate/normalize input -> pre-LLM risk rules -> session state check (including 3+ high-risk lock) -> LLM generation when allowed -> post-LLM safety filter -> final policy override/template selection -> response + structured logging.
-- **Template mapping**: `medium_template` and `high_template` use fixed copy from `docs/CRISIS_COPY.md`; append the location disclaimer line in the same message.
+- **Template mapping**: `medium_template`, `high_template`, and `high_policy_template` use fixed copy from `docs/CRISIS_COPY.md`; append the location disclaimer line in the same message.
 - **Observability minimum fields**: Each turn log should include `request_id`, `session_id`, final `risk_level`, final `policy_action`, `fallback_reason` (when present), and `trigger_source` (`pre_llm`, `llm`, `post_llm`, `session_lock`, `fallback`).
 
 ## 2026-04-28 (Phase 2 implementation milestone)

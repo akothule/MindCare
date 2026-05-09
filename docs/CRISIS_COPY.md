@@ -13,6 +13,18 @@ You deserve support right now from people who can help in real time:
 
 I am not an emergency service, but your safety matters and reaching out now can help keep you safe.
 
+## 1b) High-risk policy / refusal template (U.S.)
+
+Use when the user asks for harmful how-to content, tries to override safety instructions, or similar—**not** when they are primarily expressing personal crisis ideation (use §1 instead).
+
+I can't help with anything that could seriously harm you or others, and I won't follow instructions meant to get around how I'm meant to work.
+
+If you are having thoughts of hurting yourself or ending your life, that matters—and you deserve real support. In the U.S., you can call or text **988** (Suicide & Crisis Lifeline) any time, 24/7. If you may act on these thoughts or you're in immediate danger, call **911** right away.
+
+I'm not an emergency service, but reaching out to trained responders can help keep you safe.
+
+Then append the same §5 location disclaimer as for §1.
+
 ## 2) Medium-risk support template (U.S.)
 
 Thank you for being honest about how hard this feels. You don't have to carry this alone.
@@ -33,7 +45,8 @@ Need immediate support?
 
 ## 4) Usage rules
 
-- **High-risk:** Use the §1 body **verbatim** (no improvisation of hotlines or wording). Then **append** the §5 location disclaimer line so the full user-facing `reply_text` is: §1 body + disclaimer. Spacing (newline vs paragraph) is an implementation detail; content must not vary from approved copy.
+- **High-risk (crisis):** Use the §1 body **verbatim** (no improvisation of hotlines or wording). Then **append** the §5 location disclaimer line so the full user-facing `reply_text` is: §1 body + disclaimer. Spacing (newline vs paragraph) is an implementation detail; content must not vary from approved copy.
+- **High-risk (policy / refusal):** Use the §1b body verbatim, then append §5 the same way. API `policy_action` is `high_policy_template` (vs `high_template` for §1).
 - **Medium-risk:** Use the §2 body verbatim when serving the medium template, then append the §5 disclaimer the same way when that response is crisis/support safety messaging.
 - Medium-risk template can be used as fallback for ambiguous distress.
 - Do not let the LLM improvise hotline numbers.

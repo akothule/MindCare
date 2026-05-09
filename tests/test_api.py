@@ -30,7 +30,7 @@ def test_chat_rejects_too_long_message() -> None:
 
 
 def test_chat_returns_contract_fields(monkeypatch) -> None:
-    def fake_complete_chat_turn(history, latest_user_message):
+    def fake_complete_chat_turn(history, latest_user_message, *, pre_medium_signals=None):
         assert latest_user_message == "I feel stressed today"
         return LLMStructuredPayload(
             reply_text="Thanks for sharing. I'm here with you.",
@@ -69,7 +69,7 @@ def test_chat_high_risk_uses_fixed_template() -> None:
 
 
 def test_chat_parser_failure_returns_fallback_200(monkeypatch) -> None:
-    def fake_complete_chat_turn(_history, _latest_user_message):
+    def fake_complete_chat_turn(_history, _latest_user_message, *, pre_medium_signals=None):
         raise ValueError("simulated parser failure")
 
     monkeypatch.setattr(

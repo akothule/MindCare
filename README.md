@@ -7,12 +7,13 @@ It is not a therapist or emergency service and does not provide diagnosis or med
 
 - Backend routes live: `GET /`, `GET /health`, `POST /api/v1/chat`.
 - Deterministic safety layer is active in `/api/v1/chat`:
-  - pre-LLM risk routing for medium/high patterns
-  - fixed medium/high templates with location disclaimer
+  - pre-LLM high routing splits into crisis `high_template` (ideation) vs refusal `high_policy_template` (harm-seeking/injection); both skip LLM
+  - pre-LLM medium heuristics forward signals to the LLM; merged medium risk keeps model `reply_text` with disclaimer + crisis `resources`
   - post-LLM unsafe-output override
   - parser fallback path (`200` with `policy_action="fallback"`)
   - repeated high-risk session lock after 3+ high-risk turns
-- Test command: `python3 -m pytest -q` (API contract, Phase 2 safety/fallback, session lock, post-LLM override, and app-level rate limiting).
+- Automated tests: `python3 -m pytest -q` (routing and mocks; does not judge real LLM prose).
+- Manual / live responses: `docs/MANUAL_TEST_PROMPTS.md` and `python scripts/sample_chat_responses.py` against a running API.
 
 ## Phase 3 (standalone frontend) — status
 

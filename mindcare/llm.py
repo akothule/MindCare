@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Optional
+from typing import Optional, Sequence
 
 import anthropic
 
@@ -26,8 +26,23 @@ def _extract_json(text: str) -> Optional[dict]:
     return None
 
 
-def complete_chat_turn(history: list[dict[str, str]], latest_user_message: str) -> LLMStructuredPayload:
-    """Call Claude with conversation context; parse structured JSON."""
+_MEDIUM_SIGNAL_PREFIX = (
+    "\n\n[Internal note for MindCare routing only — "
+    "do not repeat verbatim; automated screening suggests possible distress: "
+)
+
+
+def complete_chat_turn(
+    history: list[dict[str, str]],
+    latest_user_message: str,
+    *,
+    pre_medium_signals: Sequence[str] | None = None,
+) -> LLMStructuredPayload:
+    """Call Claude with conversation context; parse structured JSON.
+
+    Optional ``pre_medium_signals`` are heuristic matches (never shown to the end user)
+    appended to the final user turn so the model can calibrate empathy and ``risk_level``.
+    """
     settings = get_settings()
     if not settings.anthropic_api_key.strip():
         raise RuntimeError("ANTHROPIC_API_KEY is not configured")
@@ -39,7 +54,11 @@ def complete_chat_turn(history: list[dict[str, str]], latest_user_message: str) 
         if turn["role"] in ("user", "assistant"):
             messages.append({"role": turn["role"], "content": turn["content"]})
     # Always send the current user message as the final turn (history is prior turns only).
-    messages.append({"role": "user", "content": latest_user_message})
+    tail = latest_user_message
+    if pre_medium_signals:
+        notes = "; ".join(str(s) for s in pre_medium_signals)
+        tail = f"{latest_user_message}{_MEDIUM_SIGNAL_PREFIX}{notes}]"
+    messages.append({"role": "user", "content": tail})
 
     response = client.messages.create(
         model=settings.anthropic_model,

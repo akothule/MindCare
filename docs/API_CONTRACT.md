@@ -28,7 +28,7 @@ This contract is designed to support deterministic safety behavior and robust fa
   "request_id": "uuid",
   "reply_text": "string",
   "risk_level": "low | medium | high",
-  "policy_action": "normal | medium_template | high_template | fallback | blocked",
+  "policy_action": "normal | medium_llm | medium_template | high_template | high_policy_template | fallback | blocked",
   "resources": [
     {
       "label": "988 Suicide & Crisis Lifeline",

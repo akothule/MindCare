@@ -59,7 +59,7 @@ Checkboxes marked `[x]` below reflect verification against this repository and `
 - [ ] `.env` and secret-loading flow are verified for local development.
 - [x] Basic input size/rate controls are enabled.
 - [x] Core prompts in `docs/TEST_PROMPT_CORPUS.json` are exercised manually or by tests.
-- [x] All high-risk corpus cases return `policy_action=high_template`.
+- [x] Corpus ideation cases return `policy_action=high_template`; harm-seeking / injection cases return `high_policy_template`.
 - [x] Corpus parse-failure case returns `policy_action=fallback`.
 
 ## Optional post-MVP checks (not required now)
