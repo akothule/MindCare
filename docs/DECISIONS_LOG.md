@@ -60,6 +60,14 @@ Track policy and product decisions that affect implementation.
 - **Flag**: `MINDCARE_CHAT_DEBUG` in repo-root `.env` (documented in `.env.example` and `docs/DEV_COMMANDS.md`).
 - **Output**: Multiline `[chat-debug]` summaries per successful chat request at **WARNING**, so they appear with uvicorn default logging without a custom handler. May include a short user message preview; keep disabled in production unless you accept that in logs.
 
+## 2026-05-09 (Safety policy: LLM router merge semantics)
+
+- **`merged_pre_chat` vs reply JSON**: Documented in `docs/SAFETY_POLICY.md` §4 that pre-chat merge (hard gates + optional classifier + soft regex) produces `merged_pre_chat`, then `final_risk = max(merged_pre_chat, reply_json.risk_level)` so the reply model cannot downgrade pre-chat routing but may escalate.
+- **Classifier reliability**: Aligned §4/§5 with `docs/LLM_SAFETY_ROUTER_PLAN.md` §3.2 — v1 `confidence` enum, fallback when low/missing/invalid, rationale logging off by default in production.
+- **Logging**: Extended §8 minimum fields with optional `merged_pre_chat_risk`, `classifier_risk_level`, `classifier_confidence`, and router-enabled flag for audit when the dedicated classifier ships.
+- **Policy version**: Bumped safety policy doc title to **v0.2** for this edit.
+- **Pipeline ordering**: `docs/SAFETY_POLICY.md` §4 now places the **§11 session lock** immediately after hard pre-checks so a locked session skips classifier and chat LLM, matching the intent of the existing handler.
+
 ## Pending
 
 - None.

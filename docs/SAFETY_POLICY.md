@@ -1,4 +1,4 @@
-# MindCare Safety Policy (MVP v0.1)
+# MindCare Safety Policy (MVP v0.2)
 
 ## 1) Role and boundaries
 
@@ -61,24 +61,39 @@ Required behavior:
 
 ## 4) Safety pipeline (deterministic order)
 
+Design reference for the optional dedicated classifier: `docs/LLM_SAFETY_ROUTER_PLAN.md` (merge details below match that plan).
+
 For every user message:
 1. Input validation and normalization.
-2. Pre-LLM risk rules (keyword/phrase patterns and phrase windows).
-3. LLM generation only if policy allows.
-4. Strict JSON schema parse and validation.
-5. Post-LLM safety filters.
-6. Final policy override and response selection.
-7. Structured logging of classifier and policy outcomes.
+2. **Hard pre-checks** — Injection / harm-seeking user text and (by default) unmistakable first-person crisis phrases; may return fixed templates **without** calling any LLM.
+3. **Session incident rule (§11)** — If the session already has **3+ high-risk turns**, return the fixed crisis template and **do not** call the dedicated classifier (when present) or the chat LLM. This check must remain in effect in implementations; optional router features must not bypass it.
+4. **Soft pre-chat signals** — Keyword/phrase patterns (“medium” heuristics) and, when enabled, a **classifier LLM** that returns validated JSON (`risk_level`, `recommended_action`, `confidence`, etc.). If the classifier is disabled, only legacy regex pre-classification applies for this layer.
+5. **Merge pre-chat risk (`merged_pre_chat`)** — Combine hard gates (they always win for escalation), successful classifier output when enabled, and legacy soft signals per the rollout phase in the router plan. Hard gates **must not** be downgraded by the classifier or by soft regex.
+6. LLM **reply** generation only if policy allows (normal / medium paths, etc.).
+7. Strict JSON schema parse and validation on the reply payload.
+8. Post-LLM safety filters.
+9. **Final risk** — `final_risk = max(merged_pre_chat, reply_json.risk_level)` using the ordering `low` < `medium` < `high`. The reply model’s `risk_level` is a **secondary** check: it **cannot** lower risk below `merged_pre_chat`; it may still **raise** it if it detects crisis wording the pre-chat path missed.
+10. Apply `suggested_policy_action` from the reply JSON only in ways consistent with `final_risk`, hard gates, session lock, and post-LLM overrides — it must not bypass hard templates or §11.
+11. Final policy override and response selection.
+12. Structured logging of classifier (when used), merge, and policy outcomes.
+
+### Classifier reliability (when the LLM router is enabled)
+
+- **`confidence`** on the classifier payload is a **string enum** in v1 (`high` | `medium` | `low`), meaning model self-reported certainty, not a calibrated score.
+- If classifier JSON **fails validation**, **`confidence` is missing**, or **`confidence` is `low`**, use the **documented soft fallback** (recommended: legacy regex pre-classification for non–hard-gated routing only; hard gates unchanged). See `docs/LLM_SAFETY_ROUTER_PLAN.md` §3.2.
+- Optional classifier **`rationale`** is for logging only, **off by default in production**, and must not be shown to end users in MVP.
 
 ## 5) Conflict and uncertainty handling
 
 If any of the following occur, apply the safer policy action:
-- Pre-LLM risk is higher than LLM-suggested risk.
+- **`merged_pre_chat`** is higher than the reply JSON’s `risk_level` (reply cannot downgrade; §4).
+- Reply JSON `risk_level` is higher than `merged_pre_chat` → use the higher value for `final_risk` and follow high/medium policy for that level.
 - LLM output is malformed, missing required fields, or inconsistent.
-- Confidence is low, ambiguous intent, or contradictory evidence.
+- Dedicated classifier (when enabled) is unusable or reports **`confidence: low`** / missing confidence → fall back as in §4 (classifier reliability).
+- Ambiguous intent or contradictory evidence → prefer the safer branch.
 
 Default fallback by severity:
-- Ambiguous but concerning: medium-risk template.
+- Ambiguous but concerning: medium-risk template or medium_llm path per merge result.
 - Clear explicit intent/threat: high-risk template.
 
 ## 6) Prohibited output classes
@@ -103,13 +118,19 @@ Store structured fields for each turn:
 - session_id
 - message_id
 - request_id
-- pre_risk_level
-- llm_risk_level_suggested
+- pre_risk_level (legacy regex-only pre-classification, when recorded separately)
+- merged_pre_chat_risk (nullable until the LLM router ships; then the risk after pre-chat merge, before reply JSON)
+- llm_risk_level_suggested (from reply JSON)
 - final_risk_level
 - policy_action (normal, medium_llm, medium_template, high_template, high_policy_template, blocked, fallback)
 - safety_flags (array)
 - fallback_reason (nullable)
 - latency_ms
+
+When the dedicated classifier is enabled, also log where available:
+- classifier_risk_level (nullable)
+- classifier_confidence (nullable; `high` | `medium` | `low`)
+- llm_router_enabled (boolean) or equivalent settings snapshot for audit
 
 ## 9) Versioning
 

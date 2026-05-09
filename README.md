@@ -33,12 +33,14 @@ It is not a therapist or emergency service and does not provide diagnosis or med
 - `docs/API_CONTRACT.md` - `/api/v1/chat` request/response schema and runtime behavior contract.
 
 ### Supporting docs
+- `docs/BACKEND_CHAT_ROUTING.md` - How the backend handles `/api/v1/chat` today (pre-LLM rules, Claude merge, templates, responses).
 - `web/README.md` - Phase 3 UI: install, dev server, build output.
 - `docs/DEV_COMMANDS.md` - Common commands (venv, uvicorn, curl, Render).
 - `docs/TEST_PROMPT_CORPUS.json` - Starter safety regression prompts for policy/testing checks.
 - `docs/DECISIONS_LOG.md` - Record of product/safety decisions and scope changes over time.
 - `docs/CLAUDE_PROVIDER_CHECKLIST.md` - Pre-integration checklist for Claude model and ops settings.
 - `docs/MVP_ACCEPTANCE_CHECKLIST.md` - Pass/fail release checklist to decide MVP demo readiness.
+- `docs/LLM_SAFETY_ROUTER_PLAN.md` - Planned LLM-assisted safety routing (feature-flagged; not yet implemented).
 - `docs/POST_MVP_BACKLOG.md` - Deferred features and roadmap items intentionally out of MVP scope.
 
 MindCare Presentation: https://docs.google.com/presentation/d/1feoDwCrOprOw1nQVuyknNRf32xba-9EXhhBKGKqM88g/edit?usp=sharing
