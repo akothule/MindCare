@@ -13,6 +13,21 @@ You deserve support right now from people who can help in real time:
 
 I am not an emergency service, but your safety matters and reaching out now can help keep you safe.
 
+## 1a) High-risk supporter / third-party template (U.S.)
+
+Use when the user is primarily **worried about someone else’s safety** (e.g. a friend or family member) and the message still warrants the same **high** routing and resources—not when the user is clearly describing **their own** self-harm intent (use §1 for that).
+
+I'm really glad you reached out. When someone you care about may be unsafe, that can feel scary and heavy to carry alone.
+
+You deserve support too. In the U.S., these resources can help you figure out next steps:
+- Call or text **988** (Suicide & Crisis Lifeline) any time, 24/7 — you can ask how to help someone else or get guidance during a crisis.
+- If someone may be in immediate danger, call **911** right away.
+- If you can, stay with them when it's safe to do so, reduce access to anything they could use to hurt themselves if it's safe to do so, and help them connect with a trusted person or professional.
+
+I'm not an emergency service, but your care for them matters and trained responders can help.
+
+API `policy_action` is `high_supporter_template` (vs `high_template` for §1).
+
 ## 1b) High-risk policy / refusal template (U.S.)
 
 Use when the user asks for harmful how-to content, tries to override safety instructions, or similar—**not** when they are primarily expressing personal crisis ideation (use §1 instead).
@@ -46,6 +61,7 @@ Need immediate support?
 ## 4) Usage rules
 
 - **High-risk (crisis):** Use the §1 body **verbatim** (no improvisation of hotlines or wording). Then **append** the §5 location disclaimer line so the full user-facing `reply_text` is: §1 body + disclaimer. Spacing (newline vs paragraph) is an implementation detail; content must not vary from approved copy.
+- **High-risk (supporter / third-party):** Use the §1a body verbatim, then append §5 the same way. API `policy_action` is `high_supporter_template`.
 - **High-risk (policy / refusal):** Use the §1b body verbatim, then append §5 the same way. API `policy_action` is `high_policy_template` (vs `high_template` for §1).
 - **Medium-risk:** Use the §2 body verbatim when serving the medium template, then append the §5 disclaimer the same way when that response is crisis/support safety messaging.
 - Medium-risk template can be used as fallback for ambiguous distress.

@@ -1,4 +1,6 @@
-# MindCare Safety Policy (MVP v0.2)
+# MindCare Safety Policy (MVP v0.6)
+
+*v0.6 — Router on: legacy medium regex skipped; classifier-only soft tier; `high_supporter_template` + single-classifier ambiguous crisis; soft empathy via `intent_bucket` (see §4 implementation paragraph).*
 
 ## 1) Role and boundaries
 
@@ -67,8 +69,10 @@ For every user message:
 1. Input validation and normalization.
 2. **Hard pre-checks** — Injection / harm-seeking user text and (by default) unmistakable first-person crisis phrases; may return fixed templates **without** calling any LLM.
 3. **Session incident rule (§11)** — If the session already has **3+ high-risk turns**, return the fixed crisis template and **do not** call the dedicated classifier (when present) or the chat LLM. This check must remain in effect in implementations; optional router features must not bypass it.
-4. **Soft pre-chat signals** — Keyword/phrase patterns (“medium” heuristics) and, when enabled, a **classifier LLM** that returns validated JSON (`risk_level`, `recommended_action`, `confidence`, etc.). If the classifier is disabled, only legacy regex pre-classification applies for this layer.
+4. **Soft pre-chat signals** — When the LLM router is **off**, legacy keyword/phrase patterns (“medium” heuristics) set `pre_risk` together with hard gates. When the router is **on**, those **medium** heuristics are **not** applied in pre-LLM classification (`pre_risk` is `low` or `high` only); a **classifier LLM** (same call as routing) returns validated JSON (`risk_level`, `recommended_action`, `intent_bucket`, `confidence`, etc.) and drives medium vs low. If the classifier is disabled, only legacy regex pre-classification applies for this layer.
 5. **Merge pre-chat risk (`merged_pre_chat`)** — Combine hard gates (they always win for escalation), successful classifier output when enabled, and legacy soft signals per the rollout phase in the router plan. Hard gates **must not** be downgraded by the classifier or by soft regex.
+
+    **Implementation (`mindcare/safety_merge.py` + `mindcare/routers/chat.py`):** On the LLM-eligible path only (after steps 2–3): if the router flag is off, `merged_pre_chat` equals legacy regex `pre_risk` (including regex **medium**). If the router is on and the classifier is missing, invalid, or reports `confidence: low`, **soft fallback** applies: `merged_pre_chat = pre_risk` (typically **`low`** for non–hard-gated text, since medium regex is skipped). If the router is on and `confidence` is `high` or `medium`, the classifier is **trusted** and `merged_pre_chat = max(pre_risk, classifier.risk_level)` with `pre_risk` usually **`low`**, so medium vs low follows the classifier. When the router is off, **Phase 3** still applies: regex-only medium uses baseline **`low`** for trusted merge so a trusted classifier can return **`low`** despite medium heuristics. Regex **`low`** is unchanged. When `merged_pre_chat == high` from a trusted classifier, the handler returns the fixed high template **without** calling the chat LLM: `high_policy_template` if `recommended_action == high_policy_template`, `high_supporter_template` if that action is set, else crisis `high_template`. **Soft empathy hints** (`MINDCARE_SOFT_EMPATHY_HINTS`): when the router is on, the classifier is trusted, and `merged_pre_chat` is **low**, the chat LLM may receive short cues if **`intent_bucket`** is `distress`, `ambiguous_distress`, or `hopelessness` (router on, no extra API call), or if regex **medium** still matched (**router off** path). Uses `apply_soft_empathy_calibration` in `mindcare/llm.py` so replies stay **low-shaped** where appropriate.
 6. LLM **reply** generation only if policy allows (normal / medium paths, etc.).
 7. Strict JSON schema parse and validation on the reply payload.
 8. Post-LLM safety filters.
@@ -122,7 +126,7 @@ Store structured fields for each turn:
 - merged_pre_chat_risk (nullable until the LLM router ships; then the risk after pre-chat merge, before reply JSON)
 - llm_risk_level_suggested (from reply JSON)
 - final_risk_level
-- policy_action (normal, medium_llm, medium_template, high_template, high_policy_template, blocked, fallback)
+- policy_action (normal, medium_llm, medium_template, high_template, high_supporter_template, high_policy_template, blocked, fallback)
 - safety_flags (array)
 - fallback_reason (nullable)
 - latency_ms

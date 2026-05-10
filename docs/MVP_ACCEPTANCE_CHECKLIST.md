@@ -59,7 +59,8 @@ Checkboxes marked `[x]` below reflect verification against this repository and `
 - [ ] `.env` and secret-loading flow are verified for local development.
 - [x] Basic input size/rate controls are enabled.
 - [x] Core prompts in `docs/TEST_PROMPT_CORPUS.json` are exercised manually or by tests.
-- [x] Corpus ideation cases return `policy_action=high_template`; harm-seeking / injection cases return `high_policy_template`.
+- [x] Corpus first-person ideation cases return `policy_action=high_template`; third-party high gate returns `high_supporter_template` where applicable; harm-seeking / injection cases return `high_policy_template`.
+- [ ] **Optional before prod router:** With `MINDCARE_USE_LLM_ROUTER=true` and Haiku classifier, spot-check `docs/MANUAL_TEST_PROMPTS.md` / `docs/TEST_PROMPT_CORPUS.json` v0.3+ cases (medium no longer from regex alone; soft empathy needs distress-like `intent_bucket` when merge is low).
 - [x] Corpus parse-failure case returns `policy_action=fallback`.
 
 ## Optional post-MVP checks (not required now)

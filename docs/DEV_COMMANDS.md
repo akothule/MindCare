@@ -14,7 +14,7 @@ Create or update `.env` manually using `.env.example` as the template. Never com
 
 Required for live chat responses: set **`ANTHROPIC_API_KEY`** in `.env` (see `.env.example`).
 
-Optional tuning (defaults match `docs/API_CONTRACT.md`): **`MAX_MESSAGE_LENGTH`**, **`MAX_SESSION_TURNS`**, **`ANTHROPIC_MAX_TOKENS`**, **`EMPTY_REPLY_FALLBACK`**. The system prompt text lives in **`mindcare/prompts/system.txt`** (edit and restart the server).
+Optional tuning (defaults match `docs/API_CONTRACT.md`): **`MAX_MESSAGE_LENGTH`**, **`MAX_SESSION_TURNS`**, **`ANTHROPIC_MAX_TOKENS`**, **`EMPTY_REPLY_FALLBACK`**, **`MINDCARE_USE_LLM_ROUTER`**, **`MINDCARE_CLASSIFIER_MODEL`**, **`MINDCARE_SOFT_EMPATHY_HINTS`**, **`MINDCARE_CRISIS_PERSPECTIVE_LLM`** (see `.env.example` and `docs/BACKEND_CHAT_ROUTING.md`). Chat system prompt: **`mindcare/prompts/system.txt`**; safety classifier: **`mindcare/prompts/classifier_system.txt`** (edit and restart the server).
 
 ## Run the API locally
 
@@ -67,6 +67,23 @@ curl -s -X POST http://127.0.0.1:8000/api/v1/chat \
   -d '{"session_id": "YOUR-SESSION-UUID", "message": "Thanks for listening."}'
 ```
 
+### Sample chat responses (script)
+
+With the API running from the repo root, you can POST a fixed set of scenarios and print full JSON responses (see also `docs/MANUAL_TEST_PROMPTS.md`):
+
+```bash
+python scripts/sample_chat_responses.py
+```
+
+Other origins and extras:
+
+```bash
+python scripts/sample_chat_responses.py --base-url http://127.0.0.1:8000
+python scripts/sample_chat_responses.py --include-session-lock
+```
+
+Default base URL is **`MINDCARE_API_BASE`** if set, otherwise `http://127.0.0.1:8000`.
+
 If **`ANTHROPIC_API_KEY`** is unset, chat returns **503** (LLM unavailable).
 
 ### Troubleshooting chat errors
@@ -90,9 +107,24 @@ python3 -m compileall -q mindcare
 python3 -m pytest -q
 ```
 
+**Phase 4 — opt-in live API check** (not for CI; requires `ANTHROPIC_API_KEY` and repo-root `.env` if you use it):
+
+```bash
+export MINDCARE_RUN_INTEGRATION=1
+python3 -m pytest -q tests/test_integration_chat.py -m integration
+```
+
+**Classifier-focused sample prompts** (running API with real models):
+
+```bash
+python scripts/sample_chat_responses.py --include-phase4-corpus
+```
+
 Current coverage highlights:
 - `tests/test_api.py`: health endpoints, request validation, baseline contract shape, high-risk fixed template, parser fallback 200 behavior, per-session and per-IP rate limits.
 - `tests/test_phase2_safety.py`: corpus-driven safety routing, low-risk mocked normal path, repeated high-risk session lock, post-LLM unsafe-output override.
+- `tests/test_phase4_classifier_routing.py`: Phase 4 corpus IDs (`class_*`) baseline + mocked LLM-router merge paths.
+- `tests/test_integration_chat.py`: optional live `/chat` smoke (`MINDCARE_RUN_INTEGRATION=1`, skipped on `CI`).
 
 ## Render (production-style host)
 

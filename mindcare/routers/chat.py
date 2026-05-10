@@ -7,9 +7,15 @@ import anthropic
 from fastapi import APIRouter, HTTPException, Request
 
 from mindcare.config import get_settings
-from mindcare.llm import complete_chat_turn
+from mindcare.llm import classify_safety_turn, complete_chat_turn
 from mindcare.rate_limiter import get_chat_rate_limiter
-from mindcare.schemas import ChatRequest, ChatResponse, ResourceItem
+from mindcare.safety_merge import PreChatMergeResult, merge_pre_chat_risk
+from mindcare.schemas import (
+    ChatRequest,
+    ChatResponse,
+    ResourceItem,
+    SafetyClassificationPayload,
+)
 from mindcare.session_store import get_session_store
 
 logger = logging.getLogger(__name__)
@@ -28,6 +34,19 @@ _HIGH_TEMPLATE_BODY = (
     "- If you may act on these thoughts now, call **911** right away.\n"
     "- If possible, move to a safer place and contact a trusted person who can stay with you.\n\n"
     "I am not an emergency service, but your safety matters and reaching out now can help keep you safe."
+)
+
+# Verbatim §1a in docs/CRISIS_COPY.md — third-party / supporter concern (same high routing, different copy).
+_HIGH_SUPPORTER_TEMPLATE_BODY = (
+    "I'm really glad you reached out. When someone you care about may be unsafe, that can feel scary and heavy "
+    "to carry alone.\n\n"
+    "You deserve support too. In the U.S., these resources can help you figure out next steps:\n"
+    "- Call or text **988** (Suicide & Crisis Lifeline) any time, 24/7 — you can ask how to help someone else "
+    "or get guidance during a crisis.\n"
+    "- If someone may be in immediate danger, call **911** right away.\n"
+    "- If you can, stay with them when it's safe to do so, reduce access to anything they could use to hurt "
+    "themselves if it's safe to do so, and help them connect with a trusted person or professional.\n\n"
+    "I'm not an emergency service, but your care for them matters and trained responders can help."
 )
 
 _HIGH_POLICY_TEMPLATE_BODY = (
@@ -64,6 +83,14 @@ _HIGH_CRISIS_IDEATION_PATTERNS = [
     r"\bwant to die\b",
 ]
 
+# Grammar is inherently about the speaker; never treat as third-party-only concern.
+_INHERENTLY_FIRST_PERSON_CRISIS = [
+    r"\bkill myself\b",
+    r"\bhurt myself\b",
+    r"\bplan to hurt myself\b",
+    r"\bend my life\b",
+]
+
 # User is asking for methods / harm how-to (not the same as expressing personal crisis).
 _HARM_SEEKING_USER_PATTERNS = [
     r"\bhow to (kill yourself|hurt yourself|overdose)\b",
@@ -93,7 +120,23 @@ _DISALLOWED_REPLY_PATTERNS = [
     r"\bstep-by-step\b",
 ]
 
+# When MINDCARE_USE_LLM_ROUTER is on, ``_MEDIUM_PATTERNS`` is skipped; soft empathy for merged-low
+# turns uses classifier ``intent_bucket`` instead (single Haiku call).
+_SOFT_EMPATHY_INTENT_BUCKETS = frozenset(
+    {
+        "distress",
+        "ambiguous_distress",
+        "hopelessness",
+    }
+)
+
 _RISK_RANK = {"low": 0, "medium": 1, "high": 2}
+
+
+def _inherently_first_person_crisis(message: str) -> bool:
+    """Unambiguous first-person self-harm phrasing; no extra LLM needed for template choice."""
+    m = message.lower()
+    return any(re.search(p, m, flags=re.IGNORECASE) for p in _INHERENTLY_FIRST_PERSON_CRISIS)
 
 
 def _with_disclaimer(template_body: str) -> str:
@@ -102,11 +145,18 @@ def _with_disclaimer(template_body: str) -> str:
 
 def _pre_llm_classification(
     message: str,
+    *,
+    skip_medium_regex: bool = False,
 ) -> tuple[str, list[str], str | None]:
     """Pre-LLM risk, debug notes, and high-path variant.
 
-    For ``pre_risk == "high"``, ``high_kind`` is ``"crisis"`` (ideation / distress) or
-    ``"policy"`` (harm-seeking requests, prompt injection). Otherwise ``None``.
+    For ``pre_risk == "high"``, ``high_kind`` is ``"policy"`` (harm / injection),
+    ``"crisis"`` (inherently first-person crisis wording — first-person template),
+    ``"crisis_perspective"`` (crisis keyword hit; template choice via safety classifier when enabled — §1 vs §1a),
+    or ``None`` when not high.
+
+    When ``skip_medium_regex`` is true (LLM router on), legacy ``_MEDIUM_PATTERNS`` are not applied;
+    medium vs low is left to the safety classifier (same Haiku call as routing).
     """
     notes: list[str] = []
 
@@ -126,17 +176,22 @@ def _pre_llm_classification(
         if re.search(p, message, flags=re.IGNORECASE):
             notes.append(f"high_keyword: {p}")
     if notes:
-        return "high", notes, "crisis"
+        if _inherently_first_person_crisis(message):
+            return "high", notes, "crisis"
+        return "high", notes, "crisis_perspective"
 
     if re.search(r"\boverdose\b", message, flags=re.IGNORECASE):
-        return "high", ["high_keyword: \\boverdose\\b"], "crisis"
+        if _inherently_first_person_crisis(message):
+            return "high", ["high_keyword: \\boverdose\\b"], "crisis"
+        return "high", ["high_keyword: \\boverdose\\b"], "crisis_perspective"
 
-    medium_hits: list[str] = []
-    for p in _MEDIUM_PATTERNS:
-        if re.search(p, message, flags=re.IGNORECASE):
-            medium_hits.append(f"medium_keyword: {p}")
-    if medium_hits:
-        return "medium", medium_hits, None
+    if not skip_medium_regex:
+        medium_hits: list[str] = []
+        for p in _MEDIUM_PATTERNS:
+            if re.search(p, message, flags=re.IGNORECASE):
+                medium_hits.append(f"medium_keyword: {p}")
+        if medium_hits:
+            return "medium", medium_hits, None
     return "low", [], None
 
 
@@ -231,8 +286,78 @@ def _chat_debug_outcome(
     _chat_debug_log(settings, lines)
 
 
+def _chat_debug_classifier(
+    settings,
+    *,
+    request_id: str,
+    session_id: str,
+    pre_risk: str,
+    classification: SafetyClassificationPayload | None,
+    merge: PreChatMergeResult,
+    error_summary: str | None,
+) -> None:
+    lines = [
+        f"request_id={request_id}",
+        f"session_id={session_id}",
+        "--- /chat pipeline: safety classifier (LLM router) ---",
+        f"pre_risk_regex={pre_risk}",
+        f"merged_pre_chat={merge.merged_risk}",
+        f"classifier_trusted={merge.classifier_trusted}",
+        f"classifier_soft_fallback={merge.classifier_soft_fallback}",
+    ]
+    if error_summary:
+        lines.append(f"classifier_error={error_summary}")
+    if classification is not None:
+        lines.append(f"classifier_risk_level={classification.risk_level}")
+        lines.append(f"classifier_confidence={classification.confidence}")
+        lines.append(f"classifier_intent_bucket={classification.intent_bucket}")
+        lines.append(f"classifier_recommended_action={classification.recommended_action}")
+    if merge.high_template_kind is not None:
+        lines.append(f"classifier_high_template_kind={merge.high_template_kind}")
+    if (
+        classification is not None
+        and settings.mindcare_classifier_log_rationale
+        and classification.rationale
+    ):
+        lines.append(
+            f"classifier_rationale_preview={_one_line_preview(classification.rationale, max_chars=200)}"
+        )
+    _chat_debug_log(settings, lines)
+
+
 def _max_risk(a: str, b: str) -> str:
     return a if _RISK_RANK[a] >= _RISK_RANK[b] else b
+
+
+def _soft_empathy_cues(pre_keyword_notes: list[str]) -> list[str]:
+    """Short categorical tags for chat-only calibration (avoid echoing full regex)."""
+    if not pre_keyword_notes:
+        return ["distress_heuristic"]
+    tags: list[str] = []
+    for n in pre_keyword_notes[:4]:
+        if n.startswith("medium_keyword:"):
+            tags.append("hopelessness_cue")
+        else:
+            tags.append("distress_cue")
+    out: list[str] = []
+    seen: set[str] = set()
+    for t in tags:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    if len(pre_keyword_notes) > 1 and "multi_pattern" not in seen:
+        out.append("multi_pattern")
+    return out[:4] if out else ["distress_heuristic"]
+
+
+def _soft_empathy_cues_from_intent(intent_bucket: str) -> list[str]:
+    """Classifier-driven soft empathy tags when regex medium is disabled (router on)."""
+    b = (intent_bucket or "").strip().lower()
+    if b in ("hopelessness", "ambiguous_distress"):
+        return ["hopelessness_cue", "classifier_intent_soft"]
+    if b == "distress":
+        return ["distress_cue", "classifier_intent_soft"]
+    return ["distress_heuristic", "classifier_intent_soft"]
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -265,7 +390,10 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             ),
         )
     request_id = str(uuid4())
-    pre_risk, pre_keyword_notes, pre_high_kind = _pre_llm_classification(msg)
+    pre_risk, pre_keyword_notes, pre_high_kind = _pre_llm_classification(
+        msg,
+        skip_medium_regex=settings.mindcare_use_llm_router,
+    )
     high_risk_count = store.high_risk_count(session_id)
 
     history_before = store.history_for_prompt(session_id)
@@ -352,8 +480,11 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             policy_action="high_template",
             fallback_reason=None,
             trigger_source="session_lock",
-            path_summary="Session already had ≥3 high-risk turns → crisis template only; LLM not called.",
+            path_summary="Session already had ≥3 high-risk turns → crisis template only; LLM chat not called.",
         )
+
+    classification: SafetyClassificationPayload | None = None
+    classifier_error_summary: str | None = None
 
     if pre_risk == "high":
         if pre_high_kind == "policy":
@@ -368,24 +499,252 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
                     "LLM not called."
                 ),
             )
+        if pre_high_kind == "crisis_perspective":
+            perspective_sub = "crisis"
+            if settings.mindcare_crisis_perspective_llm and settings.anthropic_api_key.strip():
+                try:
+                    classification = classify_safety_turn(msg, history=history_before)
+                    perspective_sub = (
+                        "supporter"
+                        if classification.recommended_action == "high_supporter_template"
+                        else "crisis"
+                    )
+                except ValueError as e:
+                    classifier_error_summary = str(e)
+                    logger.warning(
+                        "crisis_perspective_classifier_parse_failed request_id=%s session_id=%s error=%s",
+                        request_id,
+                        session_id,
+                        e,
+                    )
+                except anthropic.APIStatusError as e:
+                    classifier_error_summary = f"api_status_{e.status_code}"
+                    logger.warning(
+                        "crisis_perspective_classifier_api_error request_id=%s session_id=%s status=%s",
+                        request_id,
+                        session_id,
+                        e.status_code,
+                    )
+                except (anthropic.APIConnectionError, anthropic.APITimeoutError) as e:
+                    classifier_error_summary = "network"
+                    logger.warning(
+                        "crisis_perspective_classifier_network request_id=%s session_id=%s error=%s",
+                        request_id,
+                        session_id,
+                        e,
+                    )
+                except RuntimeError as e:
+                    classifier_error_summary = str(e)
+                    logger.warning(
+                        "crisis_perspective_classifier request_id=%s session_id=%s error=%s",
+                        request_id,
+                        session_id,
+                        e,
+                    )
+                except Exception:
+                    classifier_error_summary = "unexpected"
+                    logger.exception(
+                        "crisis_perspective_classifier_unexpected request_id=%s session_id=%s",
+                        request_id,
+                        session_id,
+                    )
+            elif not settings.anthropic_api_key.strip():
+                logger.warning(
+                    "crisis_perspective skipped (no ANTHROPIC_API_KEY); using first-person high template"
+                )
+            if perspective_sub == "supporter":
+                return _template_response(
+                    template=_with_disclaimer(_HIGH_SUPPORTER_TEMPLATE_BODY),
+                    risk_level="high",
+                    policy_action="high_supporter_template",
+                    fallback_reason=None,
+                    trigger_source="pre_llm",
+                    path_summary=(
+                        "Pre-LLM crisis keywords + safety classifier → supporter high template (§1a); "
+                        "chat LLM not called."
+                    ),
+                )
+            return _template_response(
+                template=_with_disclaimer(_HIGH_TEMPLATE_BODY),
+                risk_level="high",
+                policy_action="high_template",
+                fallback_reason=None,
+                trigger_source="pre_llm",
+                path_summary=(
+                    "Pre-LLM crisis keywords + safety classifier or default → first-person high template; "
+                    "chat LLM not called."
+                ),
+            )
         return _template_response(
             template=_with_disclaimer(_HIGH_TEMPLATE_BODY),
             risk_level="high",
             policy_action="high_template",
             fallback_reason=None,
             trigger_source="pre_llm",
-            path_summary="Pre-LLM matched crisis/ideation patterns → fixed high template; LLM not called.",
+            path_summary=(
+                "Pre-LLM matched inherently first-person crisis patterns → fixed high template; "
+                "chat LLM not called."
+            ),
+        )
+
+    classifier_pre_medium = (
+        list(pre_keyword_notes)
+        if settings.mindcare_use_llm_router and pre_risk == "medium" and pre_keyword_notes
+        else None
+    )
+
+    if settings.mindcare_use_llm_router:
+        try:
+            classification = classify_safety_turn(
+                msg,
+                history=history_before,
+                pre_medium_signals=classifier_pre_medium,
+            )
+        except ValueError as e:
+            classifier_error_summary = str(e)
+            logger.warning(
+                "safety_classifier_parse_failed request_id=%s session_id=%s error=%s",
+                request_id,
+                session_id,
+                e,
+            )
+        except anthropic.APIStatusError as e:
+            classifier_error_summary = f"api_status_{e.status_code}"
+            logger.warning(
+                "safety_classifier_api_error request_id=%s session_id=%s status=%s",
+                request_id,
+                session_id,
+                e.status_code,
+            )
+        except (anthropic.APIConnectionError, anthropic.APITimeoutError) as e:
+            classifier_error_summary = "network"
+            logger.warning(
+                "safety_classifier_network_error request_id=%s session_id=%s error=%s",
+                request_id,
+                session_id,
+                e,
+            )
+        except RuntimeError:
+            raise
+        except Exception:
+            classifier_error_summary = "unexpected"
+            logger.exception(
+                "safety_classifier_unexpected request_id=%s session_id=%s",
+                request_id,
+                session_id,
+            )
+
+    merge = merge_pre_chat_risk(
+        router_enabled=settings.mindcare_use_llm_router,
+        pre_risk=pre_risk,
+        pre_keyword_notes=pre_keyword_notes,
+        classification=classification,
+    )
+
+    if settings.mindcare_use_llm_router:
+        if classification is not None:
+            logger.info(
+                "safety_classifier_ok request_id=%s session_id=%s pre_risk=%s "
+                "classifier_risk=%s confidence=%s intent_bucket=%s recommended_action=%s "
+                "merged_pre_chat=%s classifier_soft_fallback=%s classifier_trusted=%s",
+                request_id,
+                session_id,
+                pre_risk,
+                classification.risk_level,
+                classification.confidence,
+                classification.intent_bucket,
+                classification.recommended_action,
+                merge.merged_risk,
+                merge.classifier_soft_fallback,
+                merge.classifier_trusted,
+            )
+            if settings.mindcare_classifier_log_rationale and classification.rationale:
+                logger.info(
+                    "safety_classifier_rationale request_id=%s session_id=%s preview=%s",
+                    request_id,
+                    session_id,
+                    _one_line_preview(classification.rationale, max_chars=200),
+                )
+        elif classifier_error_summary:
+            logger.info(
+                "safety_classifier_no_result request_id=%s session_id=%s reason=%s "
+                "merged_pre_chat=%s (regex fallback)",
+                request_id,
+                session_id,
+                classifier_error_summary,
+                merge.merged_risk,
+            )
+
+        _chat_debug_classifier(
+            settings,
+            request_id=request_id,
+            session_id=session_id,
+            pre_risk=pre_risk,
+            classification=classification,
+            merge=merge,
+            error_summary=classifier_error_summary,
+        )
+
+    if merge.merged_risk == "high":
+        if merge.high_template_kind == "policy":
+            return _template_response(
+                template=_with_disclaimer(_HIGH_POLICY_TEMPLATE_BODY),
+                risk_level="high",
+                policy_action="high_policy_template",
+                fallback_reason=None,
+                trigger_source="classifier",
+                path_summary=(
+                    "Trusted classifier returned high risk with policy/refusal path → "
+                    "fixed policy template; chat LLM not called."
+                ),
+            )
+        if merge.high_template_kind == "supporter":
+            return _template_response(
+                template=_with_disclaimer(_HIGH_SUPPORTER_TEMPLATE_BODY),
+                risk_level="high",
+                policy_action="high_supporter_template",
+                fallback_reason=None,
+                trigger_source="classifier",
+                path_summary=(
+                    "Trusted classifier returned high risk (supporter / third-party path) → "
+                    "fixed supporter template; chat LLM not called."
+                ),
+            )
+        return _template_response(
+            template=_with_disclaimer(_HIGH_TEMPLATE_BODY),
+            risk_level="high",
+            policy_action="high_template",
+            fallback_reason=None,
+            trigger_source="classifier",
+            path_summary=(
+                "Trusted classifier returned high risk (crisis path) → fixed high template; "
+                "chat LLM not called."
+            ),
         )
 
     pre_medium_signals: list[str] | None = (
-        list(pre_keyword_notes) if pre_risk == "medium" else None
+        list(merge.medium_signal_notes) if merge.medium_signal_notes else None
     )
+
+    soft_empathy_hints: list[str] | None = None
+    if (
+        settings.mindcare_soft_empathy_hints
+        and settings.mindcare_use_llm_router
+        and merge.classifier_trusted
+        and merge.merged_risk == "low"
+        and classification is not None
+    ):
+        if pre_risk == "medium" and pre_keyword_notes:
+            soft_empathy_hints = _soft_empathy_cues(pre_keyword_notes)
+        elif classification.intent_bucket in _SOFT_EMPATHY_INTENT_BUCKETS:
+            soft_empathy_hints = _soft_empathy_cues_from_intent(classification.intent_bucket)
 
     try:
         structured = complete_chat_turn(
             history_before,
             msg,
             pre_medium_signals=pre_medium_signals,
+            soft_empathy_hints=soft_empathy_hints,
         )
     except RuntimeError:
         raise HTTPException(
@@ -456,7 +815,7 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
         ) from None
 
     reply = structured.reply_text.strip() or settings.empty_reply_fallback
-    final_risk = _max_risk(pre_risk, structured.risk_level)
+    final_risk = _max_risk(merge.merged_risk, structured.risk_level)
 
     disallowed_hits = _disallowed_pattern_hits(reply)
     if disallowed_hits:
@@ -477,13 +836,55 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
         )
 
     if final_risk == "high":
+        if structured.suggested_policy_action == "high_policy_template":
+            return _template_response(
+                template=_with_disclaimer(_HIGH_POLICY_TEMPLATE_BODY),
+                risk_level="high",
+                policy_action="high_policy_template",
+                fallback_reason=None,
+                trigger_source="llm",
+                path_summary=(
+                    "Merged risk high with model-suggested policy path → fixed policy/refusal template; "
+                    "model reply discarded."
+                ),
+                debug_llm_risk=structured.risk_level,
+                debug_llm_policy=structured.suggested_policy_action,
+                debug_discarded_reply=reply,
+                debug_merged_risk=final_risk,
+            )
+        if _inherently_first_person_crisis(msg):
+            use_supporter = False
+        elif structured.suggested_policy_action == "high_supporter_template":
+            use_supporter = True
+        elif (
+            merge.classifier_trusted
+            and classification is not None
+            and classification.recommended_action == "high_supporter_template"
+        ):
+            use_supporter = True
+        else:
+            use_supporter = False
+        if use_supporter:
+            sup_t = _with_disclaimer(_HIGH_SUPPORTER_TEMPLATE_BODY)
+            sup_pa = "high_supporter_template"
+            sup_path = (
+                "Merged risk high: supporter from chat JSON and/or earlier safety classifier (no extra classifier call); "
+                "model reply discarded."
+            )
+        else:
+            sup_t = _with_disclaimer(_HIGH_TEMPLATE_BODY)
+            sup_pa = "high_template"
+            sup_path = (
+                "LLM JSON indicated high risk (or merged risk is high) → fixed first-person high template; "
+                "model reply discarded."
+            )
         return _template_response(
-            template=_with_disclaimer(_HIGH_TEMPLATE_BODY),
+            template=sup_t,
             risk_level="high",
-            policy_action="high_template",
+            policy_action=sup_pa,
             fallback_reason=None,
             trigger_source="llm",
-            path_summary="LLM JSON indicated high risk (or merged risk is high) → fixed high template; model reply discarded.",
+            path_summary=sup_path,
             debug_llm_risk=structured.risk_level,
             debug_llm_policy=structured.suggested_policy_action,
             debug_discarded_reply=reply,
@@ -502,17 +903,28 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             session_id,
             latency_ms,
         )
-        trigger = "pre_llm" if pre_risk == "medium" else "llm"
+        if merge.merged_risk == "medium" and pre_risk == "medium":
+            trigger = "pre_llm"
+            path_detail = (
+                "Merged risk medium: model reply kept with disclaimer and resources "
+                "(regex medium heuristics fired; hints forwarded to classifier/LLM when present)."
+            )
+        elif merge.classifier_trusted and merge.merged_risk == "medium":
+            trigger = "classifier"
+            path_detail = (
+                "Merged risk medium (trusted classifier; medium from Haiku when regex medium skipped): "
+                "model reply kept with disclaimer and resources."
+            )
+        else:
+            trigger = "llm"
+            path_detail = (
+                "Merged risk medium (from reply JSON): model reply kept with disclaimer and resources."
+            )
         _chat_debug_outcome(
             settings,
             request_id=request_id,
             session_id=session_id,
-            path_summary=(
-                "Merged risk medium: model reply kept with disclaimer and resources "
-                "(pre-LLM medium signals forwarded to LLM when present)."
-                if trigger == "pre_llm"
-                else "Merged risk medium (from model classification): reply kept with disclaimer and resources."
-            ),
+            path_summary=path_detail,
             risk_level="medium",
             policy_action="medium_llm",
             trigger_source=trigger,
@@ -547,7 +959,9 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
         settings,
         request_id=request_id,
         session_id=session_id,
-        path_summary="LLM path: pre-LLM was low; model reply passed post-LLM checks; normal reply returned.",
+        path_summary=(
+            "LLM path: merged_pre_chat was low; model reply passed post-LLM checks; normal reply returned."
+        ),
         risk_level="low",
         policy_action="normal",
         trigger_source="llm",

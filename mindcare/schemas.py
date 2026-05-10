@@ -1,13 +1,15 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 RiskLevel = Literal["low", "medium", "high"]
+ClassifierConfidence = Literal["high", "medium", "low"]
 PolicyAction = Literal[
     "normal",
     "medium_llm",
     "medium_template",
     "high_template",
+    "high_supporter_template",
     "high_policy_template",
     "fallback",
     "blocked",
@@ -48,3 +50,21 @@ class LLMStructuredPayload(BaseModel):
     reply_text: str
     risk_level: RiskLevel = "low"
     suggested_policy_action: PolicyAction = "normal"
+
+
+class SafetyClassificationPayload(BaseModel):
+    """Structured JSON from the dedicated safety classifier (routing only)."""
+
+    risk_level: RiskLevel = "low"
+    intent_bucket: str = Field(default="general_support", max_length=128)
+    recommended_action: PolicyAction = "normal"
+    confidence: ClassifierConfidence = "low"
+    rationale: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("intent_bucket")
+    @classmethod
+    def intent_bucket_non_empty(cls, v: str) -> str:
+        s = (v or "").strip()
+        if not s:
+            return "general_support"
+        return s
