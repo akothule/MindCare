@@ -55,8 +55,8 @@ class Settings(BaseSettings):
     # the call fails, default to first-person template.
     mindcare_crisis_perspective_llm: bool = True
 
-    # Router on + trusted merge LOW: pass soft cues to chat LLM when intent_bucket is distress-like
-    # (or router off + regex medium + merge LOW). Set false to disable.
+    # Router on + trusted merge LOW: pass soft cues to chat LLM when intent_bucket is distress-like.
+    # Set false to disable.
     mindcare_soft_empathy_hints: bool = True
 
     @property
