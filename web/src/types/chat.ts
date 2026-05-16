@@ -5,6 +5,7 @@ export type PolicyAction =
   | 'medium_llm'
   | 'medium_template'
   | 'high_template'
+  | 'high_supporter_template'
   | 'high_policy_template'
   | 'fallback'
   | 'blocked'

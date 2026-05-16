@@ -1,4 +1,6 @@
-# MindCare Design Document (v0.1)
+# MindCare Design Document (v0.2)
+
+*v0.2 — Aligns MVP safety architecture with the optional **LLM safety router** (`MINDCARE_USE_LLM_ROUTER`): dedicated `classify_safety_turn`, merge pre-chat risk, **`high_supporter_template`** for third-party crisis wording, and router-on behavior where legacy medium phrase regex is disabled in favor of the classifier (see `docs/SAFETY_POLICY.md` §4, `docs/BACKEND_CHAT_ROUTING.md`).*
 
 ## 1\. Purpose and goals
 
@@ -14,7 +16,7 @@
 * Offer warm, validating, human‑like conversations around day‑to‑day emotional struggles.  
 * Gently suggest evidence‑informed self‑help strategies (grounding, journaling prompts, behavioral activation) without acting as a therapist.  
 * Detect signs of self‑harm/suicidal ideation and respond with safe, pre‑approved crisis guidance and resources.  
-  * Risk detection will use a layered approach: keyword/phrase rules as a fast pre-filter, then LLM-evaluated risk level in the structured JSON response.
+  * Risk detection uses **layers**: deterministic keyword / phrase **hard gates** (injection, harm-how-to, crisis stems) where policy requires templates without the conversational LLM; an optional **safety classifier** completion (`classify_safety_turn`, same provider) when `MINDCARE_USE_LLM_ROUTER` is enabled merges nuance (medium vs low, third-party vs self for ambiguous crisis text); the **chat** completion still returns structured JSON whose `risk_level` is merged as a secondary check (`final_risk = max(merged_pre_chat, reply_json.risk_level)`).
 
 **Non‑goals (what MindCare will NOT do):**
 
@@ -61,7 +63,7 @@ The diagrams below use **Vercel** for the frontend and **Render** for the API. *
 
 #### Figure 1 — Deployment and major components
 
-Shows *where* things run and *what* talks to what. Only the **LLM client** inside your service calls Anthropic; session data is not a separate “connector” to Claude.
+Shows *where* things run and *what* talks to what. The FastAPI service may call Anthropic **twice per chat turn** when the safety router is on (one smaller **classifier** completion if configured, plus the **chat** completion), or once when the router is off—unless a template path short-circuits before the chat call.
 
 ```mermaid
 flowchart TB
@@ -100,24 +102,29 @@ flowchart TB
 
 #### Figure 2 — Logical request path inside the API
 
-Matches the deterministic pipeline in `docs/SAFETY_POLICY.md` §4. Not every step calls the LLM (e.g. high-risk may use fixed templates from `docs/CRISIS_COPY.md` without a normal completion).
+Matches the pipeline in `docs/SAFETY_POLICY.md` §4 and the step list in `docs/BACKEND_CHAT_ROUTING.md` §3. Hard gates and many **high** paths use fixed templates **without** the conversational LLM. When **`MINDCARE_USE_LLM_ROUTER`** is on, a **classifier** call may run before merge; it does **not** replace hard gates.
 
 ```mermaid
 flowchart TB
   IN[Incoming POST /api/v1/chat]
   V[1 - Validate + normalize input]
-  R[2 - Pre-LLM risk rules keywords / phrases]
-  S[(3 - Load / update session context)]
-  G{4 - Policy allows LLM generation?}
-  L[5 - Call Claude via SDK - structured JSON]
-  P[6 - Parse + validate JSON schema]
-  F[7 - Post-LLM safety filters]
-  POL[8 - Final policy override + template selection]
-  OUT[9 - Response + structured logging]
+  R[2 - Pre-LLM: hard gates + regex medium if router off]
+  C[3 - classify_safety_turn + merge when router on]
+  S[(4 - Load / update session context)]
+  G{5 - Policy allows chat LLM?}
+  L[6 - Chat completion - structured JSON]
+  P[7 - Parse + validate JSON schema]
+  F[8 - Post-LLM safety filters]
+  POL[9 - Final policy override + template selection]
+  OUT[10 - Response + structured logging]
   TPL[Fixed templates - CRISIS_COPY.md]
-  IN --> V --> R --> S --> G
+  IN --> V --> R
+  R -->|router on| C
+  R -->|router off| S
+  C --> S
+  S --> G
   G -->|yes, low / medium path| L
-  G -->|crisis / template path| TPL
+  G -->|template path high or merge high| TPL
   L --> P --> F --> POL
   TPL --> POL
   POL --> OUT
@@ -148,12 +155,13 @@ flowchart TB
 
 **FR‑4: Crisis detection and response**
 
-* System identifies messages suggesting self‑harm/suicide or harm to others using a classifier/keyword rules.  
-* On high risk:  
-  * Returns a fixed, pre‑approved crisis message with hotline/emergency guidance.  
+* System identifies messages suggesting self‑harm/suicide or harm using **regex hard gates** and, when **`MINDCARE_USE_LLM_ROUTER`** is enabled, a **validated JSON safety classifier** (`classify_safety_turn`) merged per `docs/SAFETY_POLICY.md`.  
+* On **high** risk:  
+  * Returns fixed, pre‑approved copy from `docs/CRISIS_COPY.md` — **first-person** crisis (**§1**, `high_template`), **supporter / third-party** concern (**§1a**, `high_supporter_template`), or **policy / refusal** (**§1b**, `high_policy_template`) as applicable.  
+  * Does **not** use the conversational LLM for those template paths.  
   * Does NOT engage in speculative discussion (e.g., “Is life worth living?” replies must be very carefully constrained).  
-* On medium risk:  
-  * Encourages the user to reach out to trusted people and professional help, possibly with tailored resources.
+* On **medium** risk:  
+  * Encourages reaching out to trusted people and professional help, with resources (e.g. 988, Crisis Text Line, NAMI) when the merged path is **`medium_llm`**. With the router **on**, medium vs low is primarily **classifier-driven** (legacy phrase regex for medium is disabled in pre-LLM classification).
 
 **FR‑5: Content limitations**
 
@@ -208,7 +216,7 @@ flowchart TB
   * Always recommend talking to a trusted person and/or professional.  
   * Provide relevant resources (e.g., NAMI, 988 in the U.S., Crisis Text Line).  
 * For high risk:  
-  * Return a fixed crisis template (no improvisation from LLM).  
+  * Return a fixed template (no improvisation from the **chat** LLM): first-person crisis, supporter/third-party crisis, or policy/refusal, per `docs/CRISIS_COPY.md` and `policy_action`.  
   * Emphasize contacting emergency services or crisis hotlines; clarify MindCare cannot provide emergency help.
 
 **LLM usage policy:**

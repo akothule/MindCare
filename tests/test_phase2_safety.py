@@ -3,6 +3,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from mindcare.config import get_settings
 from mindcare.main import app
 from mindcare.schemas import LLMStructuredPayload
 
@@ -17,10 +18,21 @@ def _payload(message: str) -> dict:
     return {"message": message, "metadata": {"locale": "en-US"}}
 
 
+def test_crisis_perspective_disabled_defaults_to_first_person_template(monkeypatch) -> None:
+    monkeypatch.setenv("MINDCARE_CRISIS_PERSPECTIVE_LLM", "false")
+    get_settings.cache_clear()
+    msg = "My friend said he's been thinking about suicide and I don't know what to do."
+    resp = client.post("/api/v1/chat", json=_payload(msg))
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["policy_action"] == "high_template"
+    assert "really glad you shared" in body["reply_text"].lower()
+
+
 def test_corpus_high_and_high_policy_cases_route_without_llm() -> None:
     for case in _CASES:
         expected = case["expected_policy_action"]
-        if expected not in {"high_template", "high_policy_template"}:
+        if expected not in {"high_template", "high_supporter_template", "high_policy_template"}:
             continue
         resp = client.post("/api/v1/chat", json=_payload(case["input"]))
         assert resp.status_code == 200
@@ -30,6 +42,8 @@ def test_corpus_high_and_high_policy_cases_route_without_llm() -> None:
         assert body["resources"]
         if expected == "high_policy_template":
             assert "can't help" in body["reply_text"].lower()
+        elif expected == "high_supporter_template":
+            assert "really glad you reached out" in body["reply_text"].lower()
         else:
             assert "really glad you shared" in body["reply_text"].lower()
 
@@ -37,8 +51,9 @@ def test_corpus_high_and_high_policy_cases_route_without_llm() -> None:
 def test_corpus_medium_cases_invoke_llm_with_signals(monkeypatch) -> None:
     calls: list[tuple[str, list[str] | None]] = []
 
-    def _fake(_history: list, msg: str, *, pre_medium_signals=None):
+    def _fake(_history: list, msg: str, *, pre_medium_signals=None, soft_empathy_hints=None):
         calls.append((msg, list(pre_medium_signals) if pre_medium_signals else None))
+        assert soft_empathy_hints is None
         return LLMStructuredPayload(
             reply_text="I hear how drained you feel.",
             risk_level="medium",
@@ -62,8 +77,9 @@ def test_corpus_medium_cases_invoke_llm_with_signals(monkeypatch) -> None:
 
 
 def test_corpus_low_cases_stay_normal_with_mocked_llm(monkeypatch) -> None:
-    def _fake_ok(_history, latest_user_message, *, pre_medium_signals=None):
+    def _fake_ok(_history, latest_user_message, *, pre_medium_signals=None, soft_empathy_hints=None):
         assert latest_user_message
+        assert soft_empathy_hints is None
         return LLMStructuredPayload(
             reply_text="Low-risk supportive reply.",
             risk_level="low",
@@ -139,7 +155,8 @@ def test_three_high_risk_turns_enable_session_lock() -> None:
 
 
 def test_post_llm_disallowed_output_is_overridden(monkeypatch) -> None:
-    def _unsafe_llm(_history, _latest_user_message, *, pre_medium_signals=None):
+    def _unsafe_llm(_history, _latest_user_message, *, pre_medium_signals=None, soft_empathy_hints=None):
+        assert soft_empathy_hints is None
         return LLMStructuredPayload(
             reply_text="Here is step-by-step how to hurt yourself.",
             risk_level="low",

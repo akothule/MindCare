@@ -1,6 +1,6 @@
 # MindCare backend: chat routing and responses
 
-This document describes how the **current** FastAPI backend handles `POST /api/v1/chat`: validation, pre-LLM rules, the Claude call, merging risk, templates, and the JSON returned to clients. It reflects the code as implemented today (regex pre-classification plus structured JSON from the model). A planned **dedicated safety classifier** is documented separately in `docs/LLM_SAFETY_ROUTER_PLAN.md` and is **not** part of the live pipeline yet.
+This document describes how the **current** FastAPI backend handles `POST /api/v1/chat`: validation, pre-LLM rules, optional **safety classifier** (`classify_safety_turn`), the conversational Claude call, merging risk, templates, and the JSON returned to clients. When **`MINDCARE_USE_LLM_ROUTER`** is **false** (default in tests), routing uses **regex pre-classification** plus structured JSON from the chat model. When the flag is **true**, a **single classifier completion** (typically Haiku via `MINDCARE_CLASSIFIER_MODEL`) runs before the chat LLM for pre-chat merge, ambiguous high-template choice, and (with regex medium disabled) medium vs low. Design history: `docs/LLM_SAFETY_ROUTER_PLAN.md`.
 
 **Scope:** Chat routing and responses only. Run/deploy instructions, dependency install, and the web app live elsewhere (e.g. `README.md`, `docs/DEV_COMMANDS.md`). There is no database layer in MVP; session state is in-process memory.
 
@@ -24,7 +24,7 @@ CORS allows origins from settings (`MINDCARE_CORS_ORIGINS`, default local dev po
 
 **Response** (`ChatResponse`): `session_id`, `request_id`, `reply_text`, `risk_level` (`low` | `medium` | `high`), `policy_action`, `resources` (list of `ResourceItem`), optional `fallback_reason`, `latency_ms`.
 
-`policy_action` values the handler actually uses today include: `normal`, `medium_llm`, `high_template`, `high_policy_template`, and `fallback` (e.g. LLM JSON parse failure → fixed medium template body). The schema also allows `medium_template` and `blocked` for forward compatibility; the current chat handler does not emit `medium_template` or `blocked`.
+`policy_action` values the handler actually uses today include: `normal`, `medium_llm`, `high_template`, `high_supporter_template`, `high_policy_template`, and `fallback` (e.g. LLM JSON parse failure → fixed medium template body). The schema also allows `medium_template` and `blocked` for forward compatibility; the current chat handler does not emit `medium_template` or `blocked`.
 
 ---
 
@@ -36,17 +36,18 @@ For each chat request the backend applies steps in this order:
 2. **Length check** — Reject if over `max_message_length` (default 2000; `Settings.max_message_length`).
 3. **Session** — Resolve or create `session_id` (`SessionStore`). History is in-memory, capped (default 10 turns → 20 messages; `max_session_turns` × 2), and **lost on process restart**. Clients may send any non-empty `session_id`; if it is new to this server process, an empty deque is created for that id.
 4. **Rate limit** — In-memory **sliding window** (`mindcare/rate_limiter.py`). **Both** limits must pass: per `session_id` and per **SHA-256–hashed** client IP (from `Request.client.host`, or `"unknown"`). If either bucket is full → `429`. Defaults are 20 requests per 300 seconds; see `Settings.rate_limit_max_requests` and `rate_limit_window_seconds` in `mindcare/config.py` (and env overrides your deployment uses).
-5. **Pre-LLM classification** — Regex-only `pre_risk` and optional keyword notes (see §4). No LLM yet.
+5. **Pre-LLM classification** — Regex `pre_risk` and keyword notes (see §4). With **`MINDCARE_USE_LLM_ROUTER`**, legacy **medium** phrase regex is **not** applied (`pre_risk` is `low` or `high` only). No LLM yet (except step 8b below).
 6. **Debug log (optional)** — If `MINDCARE_CHAT_DEBUG=true`, log request-side trace at WARNING.
 7. **Session lock** — If this session already has **≥3 high-risk turns** recorded, return the **crisis high template** immediately (`policy_action: high_template`, `trigger_source: session_lock`). No LLM call.
-8. **Pre-LLM high paths** — If `pre_risk == "high"`, return a fixed template (see §5). No LLM call.
-9. **LLM path** — Call `complete_chat_turn()` (Claude) with prior history and the current user message (see §6).
-10. **Merge risk** — `final_risk = max(pre_risk, structured.risk_level)` using ordering low < medium < high.
-11. **Post-LLM string check** — If the model’s `reply_text` matches disallowed patterns, replace with **high policy template** and discard model text (`policy_action: high_policy_template`, `fallback_reason: post_llm_disallowed_output`).
-12. **Branch on `final_risk`** — High → crisis template (model reply discarded if LLM was used). Medium → keep model reply with disclaimer + resource list. Low → return model reply as-is; **`resources` is an empty list** on the normal path.
-13. **Persist turn** — User and assistant messages are appended to session history when a template path uses `_template_response`, or when returning medium/low LLM replies (not when returning early `503`/`500`/`429` before a successful body is built).
+8. **Pre-LLM high paths** — If `pre_risk == "high"`, return a fixed template (see §5): **policy** → `high_policy_template`; **inherently first-person crisis** grammar → `high_template`; **ambiguous crisis keywords** (`crisis_perspective`) → one call to **`classify_safety_turn`** (same Haiku as the router) to choose **`high_template`** vs **`high_supporter_template`** when `MINDCARE_CRISIS_PERSPECTIVE_LLM` is enabled and API key present; otherwise default to first-person template. No chat LLM.
+9. **Safety classifier + merge** (when **`MINDCARE_USE_LLM_ROUTER`** and step 8 did not return) — `classify_safety_turn()` then **`merge_pre_chat_risk()`** (`mindcare/safety_merge.py`). If **`merged_pre_chat == "high"`**, return the appropriate fixed high template (policy / supporter / crisis per classifier `recommended_action`); **no chat LLM**.
+10. **Chat LLM** — `complete_chat_turn()` (Claude, `ANTHROPIC_MODEL`) with history, optional internal **medium signals** (`merge.medium_signal_notes`), and optional **soft empathy** calibration (`intent_bucket`–driven when merge is low; see §6).
+11. **Merge reply risk** — `final_risk = max(merged_pre_chat, structured.risk_level)` using ordering low < medium < high (`merged_pre_chat` from step 9; `structured` from step 10).
+12. **Post-LLM string check** — If the model’s `reply_text` matches disallowed patterns, replace with **high policy template** and discard model text (`policy_action: high_policy_template`, `fallback_reason: post_llm_disallowed_output`).
+13. **Branch on `final_risk`** — High → fixed templates (model reply discarded if step 10 ran). Medium → keep model reply with disclaimer + resource list. Low → return model reply; disclaimer only when soft paths add it; **`resources` is `[]`** on the normal low path.
+14. **Persist turn** — User and assistant messages are appended to session history when a template path uses `_template_response`, or when returning medium/low LLM replies (not when returning early `503`/`500`/`429` before a successful body is built).
 
-High-risk **turn counter:** Incremented when the response path uses `_template_response` with `risk_level == "high"` (session lock, pre-LLM high, post-LLM overrides, and LLM-merge-to-high). It is **not** incremented for `medium_llm` or `normal` responses.
+High-risk **turn counter:** Incremented when the response path uses `_template_response` with `risk_level == "high"` (session lock, pre-LLM high, classifier-merge high, post-LLM overrides, and LLM-merge-to-high). It is **not** incremented for `medium_llm` or `normal` responses.
 
 ---
 
@@ -63,7 +64,11 @@ Implemented in `_pre_llm_classification()` in `chat.py`. Patterns are evaluated 
 | 5 | **Medium distress** (`_MEDIUM_PATTERNS`) | `pre_risk = medium` | — |
 | 6 | (none) | `pre_risk = low` | — |
 
-Keyword hits are collected in `pre_keyword_notes` for logging and, for medium, forwarded to the LLM as internal routing context (§6).
+When **`MINDCARE_USE_LLM_ROUTER` is true**, step 5 is **skipped**: legacy medium phrase regex does not set `pre_risk`; medium vs low is decided only by **`classify_safety_turn`** (one Haiku with the main safety classifier). `pre_keyword_notes` then has no `medium_keyword:*` entries from this list. If the classifier merges **low** but `intent_bucket` is `distress`, `ambiguous_distress`, or `hopelessness`, the handler may still pass **soft empathy** hints to the chat model (no extra API call).
+
+When the router is **off**, step 5 applies as above.
+
+Keyword hits are collected in `pre_keyword_notes` for logging. When `pre_risk == "medium"` (router **off**), those notes become `merge.medium_signal_notes` and are passed to the **chat LLM** only as `pre_medium_signals` (internal suffix on the latest user turn; §6b). The safety classifier does **not** receive them—it classifies the latest user message only (§6a).
 
 Matching is case-insensitive (`re.IGNORECASE`).
 
@@ -73,7 +78,8 @@ Matching is case-insensitive (`re.IGNORECASE`).
 
 All template bodies are defined in `chat.py` and are **not** loaded from `docs/CRISIS_COPY.md` at runtime (copy may still be aligned with that doc editorially). Every template response appends the same **location disclaimer** paragraph (U.S. vs local emergency).
 
-- **`high_template`** — Crisis / ideation path (`_HIGH_TEMPLATE_BODY`). Used for session lock, pre-LLM crisis matches, and when `final_risk == "high"` after the model (model reply is not shown).
+- **`high_template`** — First-person crisis / ideation path (`_HIGH_TEMPLATE_BODY`). Used for session lock, pre-LLM crisis matches that are not classified as third-party concern, classifier crisis high, and when `final_risk == "high"` after the model when supporter heuristics do not apply (model reply is not shown).
+- **`high_supporter_template`** — Third-party / “worried about someone else” path (`_HIGH_SUPPORTER_TEMPLATE_BODY`). Used for pre-LLM high after the safety classifier chooses supporter on ambiguous crisis keywords, classifier `high_supporter_template`, and post-LLM high when the merged/classifier path indicates supporter.
 - **`high_policy_template`** — Refusal / policy path (`_HIGH_POLICY_TEMPLATE_BODY`). Used for pre-LLM injection/harm-seeking matches and post-LLM disallowed output.
 - **Medium fallback template** — `_MEDIUM_TEMPLATE_BODY` when the model returns **unparseable JSON** or schema-invalid payload (`policy_action: fallback`, `fallback_reason: llm_parse_failed`).
 
@@ -81,19 +87,29 @@ Template responses always include the standard **`resources`** list (988, Crisis
 
 ---
 
-## 6. LLM call (`complete_chat_turn`)
+## 6. LLM calls (`classify_safety_turn` + `complete_chat_turn`)
 
-**Module:** `mindcare/llm.py`.
+**Modules:** `mindcare/llm.py`, `mindcare/routers/chat.py`.
+
+### 6a. Safety classifier (`classify_safety_turn`)
+
+- Runs when **`MINDCARE_USE_LLM_ROUTER`** is true and the handler has not already returned. **At most one** `classify_safety_turn` per request: either inside **pre-LLM high** (`crisis_perspective`: ambiguous crisis keywords → §1 vs §1a) **or** on the **LLM-eligible path** for merge—never both. (`crisis_perspective` may also call the classifier when the router flag is **off**, if `MINDCARE_CRISIS_PERSPECTIVE_LLM` is enabled.)
+- **Input:** **Latest user message only** (no session history in the API request). Signature: `classify_safety_turn(latest_user_message)`.
+- **Model:** `MINDCARE_CLASSIFIER_MODEL` if set, else `ANTHROPIC_MODEL`.
+- **Prompt:** `mindcare/prompts/classifier_system.txt` — JSON with `risk_level`, `intent_bucket`, `recommended_action`, `confidence`, optional `rationale`.
+- **Output:** Pydantic `SafetyClassificationPayload`; merged via `merge_pre_chat_risk` (see `docs/SAFETY_POLICY.md` §4).
+
+### 6b. Conversational chat (`complete_chat_turn`)
 
 - **Provider:** Anthropic Messages API; API key from `ANTHROPIC_API_KEY` (missing → `RuntimeError`, surfaced as `503` to client).
 - **Model / caps:** `ANTHROPIC_MODEL` (default in settings), `ANTHROPIC_MAX_TOKENS`.
 - **System prompt:** `mindcare/prompts/system.txt` — instructs a single JSON object with `reply_text`, `risk_level`, `suggested_policy_action` (no markdown fences).
 - **History:** Prior turns from `SessionStore.history_for_prompt` (user/assistant only). The **current** user message is always the last user turn.
-- **Medium signals:** If `pre_risk == "medium"`, the handler passes `pre_keyword_notes` into the LLM as an **internal suffix** on the user message (`_MEDIUM_SIGNAL_PREFIX` … `]`). The user does not see this suffix; it nudges empathy and 988 per the system prompt.
+- **Internal suffixes (chat only; mutually exclusive):** If `merge.medium_signal_notes` is non-empty when `merged_pre_chat == "medium"` (e.g. regex `medium_keyword:*` when router off, or `classifier_intent:*` when router on), the handler passes them as **`pre_medium_signals`** via `apply_internal_routing_notes` (`_MEDIUM_SIGNAL_PREFIX` … `]`). That nudges empathy and 988 per the system prompt. If merge is **low**, router is **on**, and `intent_bucket` is `distress` / `ambiguous_distress` / `hopelessness`, the handler may pass **`soft_empathy_hints`** via `apply_soft_empathy_calibration` instead (warmer tone, no medium resource shape). The user never sees either suffix.
 
 **Parsing:** Response text is parsed as JSON; if that fails, optional extraction from a ```json fenced block. Failure → `ValueError` → handler returns medium template fallback (§5).
 
-**Note:** `suggested_policy_action` from the model is logged in debug output but **routing** after a successful parse is driven by `structured.risk_level` merged with `pre_risk` and by post-LLM checks—not by blindly following `suggested_policy_action`.
+**Note:** `suggested_policy_action` from the chat model is logged in debug output but **routing** after a successful parse uses **`final_risk = max(merged_pre_chat, structured.risk_level)`** and post-LLM checks—not by blindly following `suggested_policy_action`.
 
 ---
 
@@ -105,8 +121,8 @@ Template responses always include the standard **`resources`** list (988, Crisis
 
 ## 8. Medium and low LLM outcomes
 
-- **`final_risk == "medium"`** — Assistant text is the model’s `reply_text` with the **location disclaimer** appended. `policy_action` is **`medium_llm`**. **`resources`** are the same list as templates. `trigger_source` is `pre_llm` if regex already marked medium, else `llm`.
-- **`final_risk == "low"`** — Assistant text is the model’s `reply_text` (no disclaimer added). `policy_action` is **`normal`**. **`resources` is `[]`**.
+- **`final_risk == "medium"`** — Assistant text is the model’s `reply_text` with the **location disclaimer** appended. `policy_action` is **`medium_llm`**. **`resources`** are the same list as templates. `trigger_source` is **`pre_llm`** if regex-only medium (`MINDCARE_USE_LLM_ROUTER` false) matched, **`classifier`** if merge medium came from the classifier (router on), else **`llm`** if elevation came mainly from reply JSON.
+- **`final_risk == "low"`** — Assistant text is the model’s `reply_text` (no location disclaimer appended on the default normal path). `policy_action` is **`normal`**. **`resources` is `[]`**. Soft-empathy hints, when used, are **internal** text appended only for the model call (`apply_soft_empathy_calibration` in `llm.py`), not shown verbatim to the client.
 
 After a successful parse, the handler sets `reply = structured.reply_text.strip()`; if that is empty, it substitutes `Settings.empty_reply_fallback` (default short reassurance string) before post-LLM checks and persistence.
 
@@ -134,9 +150,10 @@ Policy-driven fallbacks (e.g. bad model JSON) return **`200`** with `policy_acti
 
 ---
 
-## 11. Planned changes (not implemented here)
+## 11. Future / out of band
 
-When `docs/LLM_SAFETY_ROUTER_PLAN.md` is implemented, expect an optional **second LLM call** for classification, env flags such as `MINDCARE_USE_LLM_ROUTER`, a **`merged_pre_chat`** step, and stricter merge rules documented in `docs/SAFETY_POLICY.md`. This file should be updated at that time to match the code.
+- **Client-visible classifier fields:** Not in MVP JSON; keep routing server-side unless `docs/API_CONTRACT.md` is intentionally extended.
+- **Further regex retirement:** Hard gates (injection, harm-how-to, crisis stems) remain regex-first by policy unless a future version moves more into the classifier with eval gates.
 
 ---
 
@@ -146,3 +163,5 @@ When `docs/LLM_SAFETY_ROUTER_PLAN.md` is implemented, expect an optional **secon
 |------|--------|
 | 2026-05-09 | Initial document: current `/chat` routing and responses only. |
 | 2026-05-09 | Scope note; metadata unused; session/rate-limit details; empty-reply fallback; related `rate_limiter` / `config`. |
+| 2026-05-09 | Documented live **`MINDCARE_USE_LLM_ROUTER`** path: `classify_safety_turn`, `merge_pre_chat_risk`, skip regex medium when router on, `crisis_perspective` + §6 split, `high_supporter_template`, revised steps 5–14 and §8 `trigger_source`. |
+| 2026-05-16 | Classifier documented as **message-only**; §4/§6b clarify medium notes go to **chat LLM** (`pre_medium_signals`), not Haiku; §6b documents mutual exclusion of medium signals vs soft empathy. |

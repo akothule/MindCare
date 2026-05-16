@@ -42,6 +42,23 @@ class Settings(BaseSettings):
     # Set MINDCARE_CHAT_DEBUG in repo-root .env (not web/.env).
     mindcare_chat_debug: bool = False
 
+    # LLM-assisted pre-chat safety router (Phase 1+: extra classifier call; default off = no behavior change).
+    mindcare_use_llm_router: bool = False
+    # If empty, the main ANTHROPIC_MODEL is used for the classifier.
+    mindcare_classifier_model: str = ""
+    mindcare_classifier_max_tokens: int = Field(default=256, ge=1, le=4096)
+    # When true, classifier rationale may appear in logs (use staging only; keep false in production).
+    mindcare_classifier_log_rationale: bool = False
+
+    # Crisis keywords but not inherently first-person: one safety classifier call (same model as
+    # MINDCARE_CLASSIFIER_MODEL / Haiku) picks high_template vs high_supporter_template. If false or
+    # the call fails, default to first-person template.
+    mindcare_crisis_perspective_llm: bool = True
+
+    # Router on + trusted merge LOW: pass soft cues to chat LLM when intent_bucket is distress-like.
+    # Set false to disable.
+    mindcare_soft_empathy_hints: bool = True
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.mindcare_cors_origins.split(",") if o.strip()]

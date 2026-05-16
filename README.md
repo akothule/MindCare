@@ -7,8 +7,8 @@ It is not a therapist or emergency service and does not provide diagnosis or med
 
 - Backend routes live: `GET /`, `GET /health`, `POST /api/v1/chat`.
 - Deterministic safety layer is active in `/api/v1/chat`:
-  - pre-LLM high routing splits into crisis `high_template` (ideation) vs refusal `high_policy_template` (harm-seeking/injection); both skip LLM
-  - pre-LLM medium heuristics forward signals to the LLM; merged medium risk keeps model `reply_text` with disclaimer + crisis `resources`
+  - pre-LLM high routing: policy → `high_policy_template`; unmistakable first-person crisis → `high_template`; ambiguous crisis keywords → one safety classifier call (when enabled) for `high_template` vs `high_supporter_template`; all skip the **chat** LLM
+  - optional **`MINDCARE_USE_LLM_ROUTER`**: a **single** `classify_safety_turn` (e.g. Haiku) merges pre-chat risk; with the flag on, legacy **medium** phrase regex is **disabled** and medium vs low comes from the classifier; with the flag off, regex medium still feeds merge + LLM hints
   - post-LLM unsafe-output override
   - parser fallback path (`200` with `policy_action="fallback"`)
   - repeated high-risk session lock after 3+ high-risk turns
@@ -26,8 +26,8 @@ It is not a therapist or emergency service and does not provide diagnosis or med
 ## Project docs (start here)
 
 ### Core docs
-- `docs/DESIGN_DOC.md` - Product scope, MVP requirements, non-goals, and system overview.
-- `docs/IMPLEMENTATION_PLAN.md` - Phase-by-phase execution plan from setup to post-MVP.
+- `docs/DESIGN_DOC.md` - Product scope, MVP requirements, non-goals, and system overview (**v0.2** — includes optional safety router and template paths).
+- `docs/IMPLEMENTATION_PLAN.md` - Phase-by-phase execution plan from setup to post-MVP (Phase 2 safety + router behavior updated to match code).
 - `docs/SAFETY_POLICY.md` - Enforceable safety rules, risk handling logic, and policy overrides.
 - `docs/CRISIS_COPY.md` - Fixed crisis/support message templates and resource wording.
 - `docs/API_CONTRACT.md` - `/api/v1/chat` request/response schema and runtime behavior contract.
@@ -40,7 +40,7 @@ It is not a therapist or emergency service and does not provide diagnosis or med
 - `docs/DECISIONS_LOG.md` - Record of product/safety decisions and scope changes over time.
 - `docs/CLAUDE_PROVIDER_CHECKLIST.md` - Pre-integration checklist for Claude model and ops settings.
 - `docs/MVP_ACCEPTANCE_CHECKLIST.md` - Pass/fail release checklist to decide MVP demo readiness.
-- `docs/LLM_SAFETY_ROUTER_PLAN.md` - Planned LLM-assisted safety routing (feature-flagged; not yet implemented).
+- `docs/LLM_SAFETY_ROUTER_PLAN.md` - LLM-assisted safety routing (Phases 1–4 implemented behind `MINDCARE_USE_LLM_ROUTER`; see `.env.example` and `BACKEND_CHAT_ROUTING.md`).
 - `docs/POST_MVP_BACKLOG.md` - Deferred features and roadmap items intentionally out of MVP scope.
 
 MindCare Presentation: https://docs.google.com/presentation/d/1feoDwCrOprOw1nQVuyknNRf32xba-9EXhhBKGKqM88g/edit?usp=sharing

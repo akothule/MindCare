@@ -7,6 +7,7 @@ Usage:
   python scripts/sample_chat_responses.py
   python scripts/sample_chat_responses.py --base-url http://127.0.0.1:8000
   python scripts/sample_chat_responses.py --include-session-lock
+  python scripts/sample_chat_responses.py --include-phase4-corpus
 """
 
 from __future__ import annotations
@@ -17,7 +18,11 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_CORPUS_PATH = _REPO_ROOT / "docs" / "TEST_PROMPT_CORPUS.json"
 
 
 def _post_chat(base_url: str, message: str, session_id: str | None) -> dict[str, Any]:
@@ -61,6 +66,11 @@ def main() -> None:
         action="store_true",
         help="After single-turn samples, reuse one session: 3x high-risk then a mundane line.",
     )
+    parser.add_argument(
+        "--include-phase4-corpus",
+        action="store_true",
+        help="Also POST each Phase 4 classifier-focused case from docs/TEST_PROMPT_CORPUS.json (id prefix class_).",
+    )
     args = parser.parse_args()
     base = args.base_url
 
@@ -75,6 +85,16 @@ def main() -> None:
     for sid, msg in scenarios:
         body = _post_chat(base, msg, session_id=None)
         _print_scenario(sid, msg, body)
+
+    if args.include_phase4_corpus:
+        corpus = json.loads(_CORPUS_PATH.read_text(encoding="utf-8"))
+        for case in corpus.get("cases", []):
+            cid = case.get("id") or ""
+            if not cid.startswith("class_"):
+                continue
+            msg = case["input"]
+            body = _post_chat(base, msg, session_id=None)
+            _print_scenario(cid, msg, body)
 
     if args.include_session_lock:
         print("\n" + "=" * 72)

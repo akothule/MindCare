@@ -8,6 +8,8 @@ Before backend implementation starts, finalize these source-of-truth artifacts:
 - `docs/CRISIS_COPY.md` (approved medium/high templates and resource wording)
 - `docs/API_CONTRACT.md` (`/api/v1/chat` request/response, fallback and observability fields)
 - `docs/TEST_PROMPT_CORPUS.json` (starter safety regression prompts)
+- `docs/BACKEND_CHAT_ROUTING.md` (concrete `/chat` order of operations; keep in sync with code)
+- `docs/LLM_SAFETY_ROUTER_PLAN.md` (optional dedicated safety classifier and rollout)
 
 And finalize open product decisions:
 - None (MVP defaults are captured in `docs/DECISIONS_LOG.md`).
@@ -53,33 +55,29 @@ Record all finalized choices in `docs/DECISIONS_LOG.md`.
 
 ## Phase 2 – Safety and guardrails
 
+**Status (repo, 2026-05):** Implemented in `mindcare/routers/chat.py`, `mindcare/llm.py`, `mindcare/safety_merge.py`. Policy detail: `docs/SAFETY_POLICY.md` **v0.6**; routing steps: `docs/BACKEND_CHAT_ROUTING.md`.
+
 1. Pre‑LLM safety checks  
-* Implement a simple risk classifier:  
-  * Start with curated keyword/phrase lists for self‑harm/suicide, violence, and abuse.  
-  * If triggered, set risk\_level="high" and skip normal LLM call or call LLM with a special “crisis reply” prompt.  
-* Log all high‑risk messages separately for review.  
-* Add repeated high-risk incident handling: when a session reaches 3+ high-risk turns, keep crisis responses and suppress normal conversation for the rest of that session.
-2. System prompt and policy  
-* Write a detailed system prompt for the LLM including:  
-  * Role, tone, and limitations (no diagnosis, no meds advice).  
-  * Required behavior in crisis (always recommend contacting emergency/hotline, trusted people, and professional support; avoid giving how‑to instructions).  
-  * Output as JSON with fields you expect.
+* **Hard gates (regex):** injection, harm-how-to, crisis keyword lists, and inherently first-person self-harm phrases → fixed templates where required; **no** conversational LLM on those paths when policy short-circuits.  
+* **Optional `MINDCARE_USE_LLM_ROUTER`:** `classify_safety_turn` (typically Haiku via `MINDCARE_CLASSIFIER_MODEL`) produces `merged_pre_chat` with `merge_pre_chat_risk`. When the flag is **on**, legacy **medium** phrase regex is **not** used in pre-LLM classification—medium vs low comes from the classifier.  
+* **Ambiguous crisis keywords** (e.g. third-party + suicide): one `classify_safety_turn` when `MINDCARE_CRISIS_PERSPECTIVE_LLM` is enabled chooses **`high_template`** vs **`high_supporter_template`** (see `docs/CRISIS_COPY.md` §1 / §1a).  
+* Log high-risk outcomes; **session lock** after 3+ high-risk turns (crisis template only for subsequent messages in that session).
+
+2. System prompts and policy  
+* Chat system prompt: `mindcare/prompts/system.txt` — role, limits, JSON shape (`LLMStructuredPayload`).  
+* Classifier system prompt: `mindcare/prompts/classifier_system.txt` — `SafetyClassificationPayload` (`risk_level`, `intent_bucket`, `recommended_action`, `confidence`).
 
 3. Post‑LLM filters  
-* Scan LLM output for disallowed content (explicit instructions for self‑harm, medical dosing, hateful speech).  
-* If found, trigger a safe fallback template instead of returning the raw answer.  
-4. Fixed crisis scripts  
-* Create templates for:  
-  * Immediate risk (e.g., clear suicide intent).  
-  * Medium risk (e.g., depressive statements without explicit plan).  
-* Make them localized (at least U.S. numbers initially) and consistent with major advisory bodies.  
-  * 988  
-  * Crisis Text Line: text HOME to 741741  
-  * NAMI: 1-800-950-6264  
-5. Test the safety layer  
-* Write a small test suite with known high-risk phrases and verify they always trigger the crisis template.
+* Scan model `reply_text` for disallowed patterns; override with **`high_policy_template`** when matched.
 
-**Output:** /chat now always returns policy‑compliant responses with explicit risk flags.
+4. Fixed crisis and support scripts  
+* **§1** first-person high, **§1a** supporter / third-party high (`high_supporter_template`), **§1b** policy/refusal (`high_policy_template`), **§2** medium fallback — aligned with `docs/CRISIS_COPY.md`; bodies live in `chat.py` at runtime.  
+* U.S. resource list (988, CTL, NAMI, 911) + location disclaimer behavior per contract.
+
+5. Test the safety layer  
+* Pytest corpus and classifier routing tests (`tests/test_phase2_safety.py`, `tests/test_phase4_classifier_routing.py`, `tests/test_safety_merge.py`, etc.); `docs/TEST_PROMPT_CORPUS.json` through **v0.3+**.
+
+**Output:** `/api/v1/chat` returns policy‑compliant responses with explicit `risk_level` / `policy_action` / `resources`; optional router path documented for staging rollout (`docs/LLM_SAFETY_ROUTER_PLAN.md` Phase 5).
 
 ## Phase 3 – Minimal standalone frontend
 
