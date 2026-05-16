@@ -329,27 +329,6 @@ def _max_risk(a: str, b: str) -> str:
     return a if _RISK_RANK[a] >= _RISK_RANK[b] else b
 
 
-def _soft_empathy_cues(pre_keyword_notes: list[str]) -> list[str]:
-    """Short categorical tags for chat-only calibration (avoid echoing full regex)."""
-    if not pre_keyword_notes:
-        return ["distress_heuristic"]
-    tags: list[str] = []
-    for n in pre_keyword_notes[:4]:
-        if n.startswith("medium_keyword:"):
-            tags.append("hopelessness_cue")
-        else:
-            tags.append("distress_cue")
-    out: list[str] = []
-    seen: set[str] = set()
-    for t in tags:
-        if t not in seen:
-            seen.add(t)
-            out.append(t)
-    if len(pre_keyword_notes) > 1 and "multi_pattern" not in seen:
-        out.append("multi_pattern")
-    return out[:4] if out else ["distress_heuristic"]
-
-
 def _soft_empathy_cues_from_intent(intent_bucket: str) -> list[str]:
     """Classifier-driven soft empathy tags when regex medium is disabled (router on)."""
     b = (intent_bucket or "").strip().lower()
@@ -503,7 +482,7 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             perspective_sub = "crisis"
             if settings.mindcare_crisis_perspective_llm and settings.anthropic_api_key.strip():
                 try:
-                    classification = classify_safety_turn(msg, history=history_before)
+                    classification = classify_safety_turn(msg)
                     perspective_sub = (
                         "supporter"
                         if classification.recommended_action == "high_supporter_template"
@@ -587,19 +566,9 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             ),
         )
 
-    classifier_pre_medium = (
-        list(pre_keyword_notes)
-        if settings.mindcare_use_llm_router and pre_risk == "medium" and pre_keyword_notes
-        else None
-    )
-
     if settings.mindcare_use_llm_router:
         try:
-            classification = classify_safety_turn(
-                msg,
-                history=history_before,
-                pre_medium_signals=classifier_pre_medium,
-            )
+            classification = classify_safety_turn(msg)
         except ValueError as e:
             classifier_error_summary = str(e)
             logger.warning(
@@ -734,9 +703,7 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
         and merge.merged_risk == "low"
         and classification is not None
     ):
-        if pre_risk == "medium" and pre_keyword_notes:
-            soft_empathy_hints = _soft_empathy_cues(pre_keyword_notes)
-        elif classification.intent_bucket in _SOFT_EMPATHY_INTENT_BUCKETS:
+        if classification.intent_bucket in _SOFT_EMPATHY_INTENT_BUCKETS:
             soft_empathy_hints = _soft_empathy_cues_from_intent(classification.intent_bucket)
 
     try:
@@ -907,7 +874,7 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
             trigger = "pre_llm"
             path_detail = (
                 "Merged risk medium: model reply kept with disclaimer and resources "
-                "(regex medium heuristics fired; hints forwarded to classifier/LLM when present)."
+                "(regex medium heuristics fired; hints forwarded to chat LLM when present)."
             )
         elif merge.classifier_trusted and merge.merged_risk == "medium":
             trigger = "classifier"

@@ -126,7 +126,7 @@ After the dedicated **classifier** exists, define a single merge story so implem
 ## 7. Open decisions (resolve before or during Phase 2)
 
 1. **Hard crisis gate (gate B)** — **Default for v1: on** — Inherently first-person self-harm grammar (`kill myself`, etc.) returns **`high_template`** **without** the classifier. **Ambiguous** crisis keywords (e.g. bare `suicide`, `want to die` without clear self vs other) use **one** `classify_safety_turn` when `MINDCARE_CRISIS_PERSPECTIVE_LLM` is enabled to choose **`high_template`** vs **`high_supporter_template`**; if disabled or on failure, default to first-person template.
-2. **Classifier input** — **Message-only** vs last *k* turns. Message-only is simpler and cheaper; history helps disambiguate “my friend…” vs “I…” but increases tokens and logging sensitivity.
+2. **Classifier input** — **Message-only** vs last *k* turns. **Implemented (v1): message-only** (`classify_safety_turn(latest_user_message)`; no session history in the API). Last-*k* turns remain a future option if evals show escalation-over-session gaps the chat LLM’s `risk_level` merge does not catch.
 3. **Downgrade rule** — Can the classifier lower risk below a **soft** regex hit (e.g. medium heuristic)? Recommend: **only** where policy explicitly allows (e.g. third-party routing); **never** below hard gates. (Does not apply to **`merged_pre_chat` vs reply JSON**: reply JSON may only escalate; see §3.1.)
 4. **Second-call cost** — Two LLM calls on many turns (classifier + reply). Mitigations: skip classifier when a hard gate already fired; use optional smaller classifier model (§3.2); defer “session stability” optimizations until v2.
 
@@ -149,3 +149,4 @@ After the dedicated **classifier** exists, define a single merge story so implem
 | 2026-05-09 | Phase 3 **Option A** implemented: medium regex as classifier/chat hints only under `MINDCARE_USE_LLM_ROUTER`; trusted merge baseline strips regex-only medium (`mindcare/safety_merge.py`). |
 | 2026-05-09 | Phase 4: corpus v0.2 (`class_*` cases), `test_phase4_classifier_routing.py`, opt-in `test_integration_chat.py`, sample script `--include-phase4-corpus`. |
 | 2026-05-09 | **Superseded Phase 3 (router on):** legacy medium regex **skipped** when `MINDCARE_USE_LLM_ROUTER`; classifier-only soft tier; `high_supporter_template` + single `classify_safety_turn` for ambiguous crisis keywords; soft empathy via `intent_bucket`. Corpus **v0.3** notes; `docs/SAFETY_POLICY.md` / `BACKEND_CHAT_ROUTING.md` updated. |
+| 2026-05-16 | §7.2: document **message-only** classifier as shipped; `BACKEND_CHAT_ROUTING.md` / `SAFETY_POLICY.md` §4 synced (medium notes → chat LLM only). |

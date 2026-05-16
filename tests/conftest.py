@@ -31,12 +31,7 @@ def reset_in_memory_runtime_state(monkeypatch: pytest.MonkeyPatch) -> None:
 def stub_safety_classifier_for_tests(monkeypatch: pytest.MonkeyPatch) -> None:
     """Offline stand-in for ``classify_safety_turn`` (patch the name bound in ``chat`` router)."""
 
-    def fake_classify(
-        latest_user_message: str,
-        *,
-        history=None,
-        pre_medium_signals=None,
-    ) -> SafetyClassificationPayload:
+    def fake_classify(latest_user_message: str) -> SafetyClassificationPayload:
         m = (latest_user_message or "").lower()
         if re.search(r"\b(kill myself|hurt myself|plan to hurt myself|end my life)\b", m):
             return SafetyClassificationPayload(
@@ -53,13 +48,6 @@ def stub_safety_classifier_for_tests(monkeypatch: pytest.MonkeyPatch) -> None:
                 risk_level="high",
                 intent_bucket="third_party_concern",
                 recommended_action="high_supporter_template",
-                confidence="high",
-            )
-        if pre_medium_signals:
-            return SafetyClassificationPayload(
-                risk_level="medium",
-                intent_bucket="distress",
-                recommended_action="medium_llm",
                 confidence="high",
             )
         return SafetyClassificationPayload(

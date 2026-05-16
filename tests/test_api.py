@@ -176,7 +176,7 @@ def test_chat_calls_safety_classifier_when_router_enabled(monkeypatch) -> None:
 
     classify_calls: list[str] = []
 
-    def fake_classify(msg, *, history=None, pre_medium_signals=None):
+    def fake_classify(msg):
         classify_calls.append(msg)
         return SafetyClassificationPayload(
             risk_level="low",
@@ -211,14 +211,11 @@ def test_chat_calls_safety_classifier_when_router_enabled(monkeypatch) -> None:
 
 
 def test_router_classifier_medium_without_regex_medium_hints(monkeypatch) -> None:
-    """Router on: legacy medium regex is skipped; classifier is not given pre_medium_signals."""
+    """Router on: legacy medium regex is skipped; medium signals come from merge, not classifier input."""
     monkeypatch.setenv("MINDCARE_USE_LLM_ROUTER", "true")
     get_settings.cache_clear()
 
-    captured: list[list[str] | None] = []
-
-    def fake_classify(_msg, *, history=None, pre_medium_signals=None):
-        captured.append(list(pre_medium_signals) if pre_medium_signals else None)
+    def fake_classify(_msg):
         return SafetyClassificationPayload(
             risk_level="medium",
             intent_bucket="distress",
@@ -250,7 +247,6 @@ def test_router_classifier_medium_without_regex_medium_hints(monkeypatch) -> Non
         json={"message": "I don't see the point of anything anymore."},
     )
     assert resp.status_code == 200
-    assert captured == [None]
     assert resp.json()["policy_action"] == "medium_llm"
 
 

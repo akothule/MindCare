@@ -68,7 +68,7 @@ When **`MINDCARE_USE_LLM_ROUTER` is true**, step 5 is **skipped**: legacy medium
 
 When the router is **off**, step 5 applies as above.
 
-Keyword hits are collected in `pre_keyword_notes` for logging and, when `pre_risk == "medium"` (router off), forwarded to the classifier as `pre_medium_signals` and into the chat LLM as internal routing context (§6).
+Keyword hits are collected in `pre_keyword_notes` for logging. When `pre_risk == "medium"` (router **off**), those notes become `merge.medium_signal_notes` and are passed to the **chat LLM** only as `pre_medium_signals` (internal suffix on the latest user turn; §6b). The safety classifier does **not** receive them—it classifies the latest user message only (§6a).
 
 Matching is case-insensitive (`re.IGNORECASE`).
 
@@ -93,7 +93,8 @@ Template responses always include the standard **`resources`** list (988, Crisis
 
 ### 6a. Safety classifier (`classify_safety_turn`)
 
-- Runs when **`MINDCARE_USE_LLM_ROUTER`** is true and the handler has not already returned. **At most one** `classify_safety_turn` per request: either inside **pre-LLM high** (`crisis_perspective`: ambiguous crisis keywords → §1 vs §1a) **or** on the **LLM-eligible path** for merge—never both.
+- Runs when **`MINDCARE_USE_LLM_ROUTER`** is true and the handler has not already returned. **At most one** `classify_safety_turn` per request: either inside **pre-LLM high** (`crisis_perspective`: ambiguous crisis keywords → §1 vs §1a) **or** on the **LLM-eligible path** for merge—never both. (`crisis_perspective` may also call the classifier when the router flag is **off**, if `MINDCARE_CRISIS_PERSPECTIVE_LLM` is enabled.)
+- **Input:** **Latest user message only** (no session history in the API request). Signature: `classify_safety_turn(latest_user_message)`.
 - **Model:** `MINDCARE_CLASSIFIER_MODEL` if set, else `ANTHROPIC_MODEL`.
 - **Prompt:** `mindcare/prompts/classifier_system.txt` — JSON with `risk_level`, `intent_bucket`, `recommended_action`, `confidence`, optional `rationale`.
 - **Output:** Pydantic `SafetyClassificationPayload`; merged via `merge_pre_chat_risk` (see `docs/SAFETY_POLICY.md` §4).
@@ -104,7 +105,7 @@ Template responses always include the standard **`resources`** list (988, Crisis
 - **Model / caps:** `ANTHROPIC_MODEL` (default in settings), `ANTHROPIC_MAX_TOKENS`.
 - **System prompt:** `mindcare/prompts/system.txt` — instructs a single JSON object with `reply_text`, `risk_level`, `suggested_policy_action` (no markdown fences).
 - **History:** Prior turns from `SessionStore.history_for_prompt` (user/assistant only). The **current** user message is always the last user turn.
-- **Medium signals:** If `merge.medium_signal_notes` is non-empty (e.g. regex `medium_keyword:*` when router off, or `classifier_intent:*` when merged risk is medium), the handler passes them into the LLM as an **internal suffix** on the user message (`_MEDIUM_SIGNAL_PREFIX` … `]`). The user does not see this suffix; it nudges empathy and 988 per the system prompt. **Soft empathy** (merged low, router on): optional short hints from classifier `intent_bucket` without promoting to medium (`apply_soft_empathy_calibration` in `llm.py`).
+- **Internal suffixes (chat only; mutually exclusive):** If `merge.medium_signal_notes` is non-empty when `merged_pre_chat == "medium"` (e.g. regex `medium_keyword:*` when router off, or `classifier_intent:*` when router on), the handler passes them as **`pre_medium_signals`** via `apply_internal_routing_notes` (`_MEDIUM_SIGNAL_PREFIX` … `]`). That nudges empathy and 988 per the system prompt. If merge is **low**, router is **on**, and `intent_bucket` is `distress` / `ambiguous_distress` / `hopelessness`, the handler may pass **`soft_empathy_hints`** via `apply_soft_empathy_calibration` instead (warmer tone, no medium resource shape). The user never sees either suffix.
 
 **Parsing:** Response text is parsed as JSON; if that fails, optional extraction from a ```json fenced block. Failure → `ValueError` → handler returns medium template fallback (§5).
 
@@ -163,3 +164,4 @@ Policy-driven fallbacks (e.g. bad model JSON) return **`200`** with `policy_acti
 | 2026-05-09 | Initial document: current `/chat` routing and responses only. |
 | 2026-05-09 | Scope note; metadata unused; session/rate-limit details; empty-reply fallback; related `rate_limiter` / `config`. |
 | 2026-05-09 | Documented live **`MINDCARE_USE_LLM_ROUTER`** path: `classify_safety_turn`, `merge_pre_chat_risk`, skip regex medium when router on, `crisis_perspective` + §6 split, `high_supporter_template`, revised steps 5–14 and §8 `trigger_source`. |
+| 2026-05-16 | Classifier documented as **message-only**; §4/§6b clarify medium notes go to **chat LLM** (`pre_medium_signals`), not Haiku; §6b documents mutual exclusion of medium signals vs soft empathy. |

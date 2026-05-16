@@ -84,12 +84,12 @@ Track policy and product decisions that affect implementation.
 ## 2026-05-09 (LLM safety router Phase 3 — regex medium as classifier hints)
 
 - **Choice**: Router-plan **Option A** — keep medium regex as **signals** to the classifier (and chat LLM) only when `MINDCARE_USE_LLM_ROUTER` is true; trusted merge uses baseline `low` when `pre_risk` was **only** regex-medium so the classifier can route low without being overridden by heuristics. Soft fallback unchanged (full regex `pre_risk`).
-- **Code**: `mindcare/llm.py` (`apply_internal_routing_notes`, classifier `pre_medium_signals`); `mindcare/safety_merge.py` (trusted baseline strip); `mindcare/routers/chat.py` (pass hints, fix medium `trigger_source` when merge differs from regex).
+- **Code**: `mindcare/llm.py` (`apply_internal_routing_notes` for chat); `mindcare/safety_merge.py` (trusted baseline strip); `mindcare/routers/chat.py` (pass hints to chat LLM, fix medium `trigger_source` when merge differs from regex). *(Later: classifier is message-only; medium notes are not sent to Haiku—see 2026-05-16 entry.)*
 - **Policy version**: `docs/SAFETY_POLICY.md` **v0.4**.
 
 ## 2026-05-09 (Soft empathy hints — low merge + distress heuristics)
 
-- **Behavior**: When `MINDCARE_USE_LLM_ROUTER` is on and a trusted classifier merges **low** while regex **medium** heuristics fired, the chat completion receives **short categorical cues** and a dedicated internal calibration block (`mindcare/llm.py`: `apply_soft_empathy_calibration`) — not the full `pre_medium_signals` medium path — so `policy_action` stays **normal** while nudging tone. Opt out with `MINDCARE_SOFT_EMPATHY_HINTS=false`.
+- **Behavior**: When `MINDCARE_USE_LLM_ROUTER` is on and a trusted classifier merges **low** while regex **medium** heuristics fired, the chat completion receives **short categorical cues** and a dedicated internal calibration block (`mindcare/llm.py`: `apply_soft_empathy_calibration`) — not the full `pre_medium_signals` medium path — so `policy_action` stays **normal** while nudging tone. Opt out with `MINDCARE_SOFT_EMPATHY_HINTS=false`. *(Superseded for router-on production path when legacy medium regex was retired: soft empathy now uses classifier `intent_bucket` only; see 2026-05-09 “Router on: legacy medium regex retired” and 2026-05-16 entry.)*
 - **Policy version**: `docs/SAFETY_POLICY.md` **v0.5**.
 
 ## 2026-05-09 (LLM safety router Phase 4 — evals & tests)
@@ -104,6 +104,12 @@ Track policy and product decisions that affect implementation.
 - **Soft empathy:** When merge is low and the router is on, cues use classifier `intent_bucket` (`distress`, `ambiguous_distress`, `hopelessness`) instead of requiring regex medium hits. Router off keeps regex medium + prior merge behavior.
 - **Crisis §1 vs §1a:** Ambiguous crisis keywords use one `classify_safety_turn` for `high_template` vs `high_supporter_template` (no separate perspective model).
 - **Docs/tests:** `docs/TEST_PROMPT_CORPUS.json` v0.3 notes; `docs/SAFETY_POLICY.md` **v0.6** §4; `docs/BACKEND_CHAT_ROUTING.md`, `docs/LLM_SAFETY_ROUTER_PLAN.md`, `README.md`, `docs/MANUAL_TEST_PROMPTS.md`, `docs/DEV_COMMANDS.md`, `docs/MVP_ACCEPTANCE_CHECKLIST.md`, **`docs/DESIGN_DOC.md` v0.2**, **`docs/IMPLEMENTATION_PLAN.md`** Phase 2 status; `tests/test_phase4_classifier_routing.py` extended.
+
+## 2026-05-16 (Docs + classifier API hygiene)
+
+- **Classifier input**: `classify_safety_turn(latest_user_message)` — message-only; no session history or `pre_medium_signals` on the Haiku request (removed unused parameters).
+- **Chat internal notes**: `pre_medium_signals` and `soft_empathy_hints` apply only to `complete_chat_turn` (Sonnet), mutually exclusive; medium notes come from `merge.medium_signal_notes`, soft empathy from classifier `intent_bucket` when router on and merge is low.
+- **Docs**: `docs/BACKEND_CHAT_ROUTING.md`, `docs/SAFETY_POLICY.md` §4 implementation paragraph aligned with code.
 
 ## Pending
 

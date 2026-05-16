@@ -120,21 +120,8 @@ def complete_chat_turn(
         raise ValueError("Model JSON did not match expected schema") from e
 
 
-def classify_safety_turn(
-    latest_user_message: str,
-    *,
-    history: Sequence[dict[str, str]] | None = None,
-    pre_medium_signals: Sequence[str] | None = None,
-) -> SafetyClassificationPayload:
-    """Dedicated classifier completion: validated JSON only.
-
-    ``history`` is reserved for future context (e.g. last *k* turns); Phase 1 uses the
-    latest user message only to match the plan's message-only default.
-
-    ``pre_medium_signals`` (Phase 3): legacy medium-regex hits as hints only when the
-    LLM router is on — they do not alone set ``pre_risk`` for trusted merge.
-    """
-    _ = history
+def classify_safety_turn(latest_user_message: str) -> SafetyClassificationPayload:
+    """Dedicated classifier completion: validated JSON for the latest user message only."""
 
     settings = get_settings()
     if not settings.anthropic_api_key.strip():
@@ -147,12 +134,7 @@ def classify_safety_turn(
         model=model,
         max_tokens=settings.mindcare_classifier_max_tokens,
         system=load_classifier_system_prompt(),
-        messages=[
-            {
-                "role": "user",
-                "content": apply_internal_routing_notes(latest_user_message, pre_medium_signals),
-            }
-        ],
+        messages=[{"role": "user", "content": latest_user_message.strip()}],
     )
 
     text = ""
