@@ -45,6 +45,6 @@ It is not a therapist or emergency service and does not provide diagnosis or med
 
 MindCare Presentation: https://docs.google.com/presentation/d/1feoDwCrOprOw1nQVuyknNRf32xba-9EXhhBKGKqM88g/edit?usp=sharing
 
-MindCare Demo: https://ayush.kothule.me/mindcare
+MindCare Old Demo (IBM Watson): https://ayush.kothule.me/mindcare
 
-Youtube Demo: https://youtu.be/c-lSNw5wdKQ
+MindCare Current Demo (Anthropic API): https://mindcare-blush-six.vercel.app/
